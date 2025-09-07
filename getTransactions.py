@@ -115,7 +115,6 @@ def getTransactionsInBatches(batch_size=500):
 #     for i in range(0, len(results), batch_size):
 #         yield results[i:i + batch_size]
 
-
 def extract_completed_transactions(
     filename, batch_size=500, json_file="new_transactions.json"
 ):
@@ -142,8 +141,9 @@ def extract_completed_transactions(
     results = []
     seen = set()  # to avoid duplicates
 
+    # ✅ Allow 3 or 4 letter months (Sep / Sept)
     date_pattern = re.compile(
-        r"\d{1,2} \w{3} \d{4}, \d{2}:\d{2}:\d{2} GMT[+-]\d{2}:\d{2}"
+        r"\d{1,2} \w{3,4} \d{4}, \d{2}:\d{2}:\d{2} GMT[+-]\d{2}:\d{2}"
     )
 
     for outer in soup.find_all(
@@ -170,6 +170,9 @@ def extract_completed_transactions(
                 tx_text = main_text.replace(date_str, "").strip()
 
                 try:
+                    # ✅ Normalize "Sept" → "Sep"
+                    date_str = date_str.replace("Sept", "Sep")
+
                     tx_date = datetime.strptime(
                         date_str, "%d %b %Y, %H:%M:%S GMT%z"
                     ).replace(tzinfo=None)
