@@ -9,3 +9,5 @@ __pycache__/
 credentials.json
 tokens/
 venv/
+nginx/certbot/conf
+nginx/certbot/www
