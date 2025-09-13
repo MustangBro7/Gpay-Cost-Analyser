@@ -248,7 +248,7 @@ activity_filename = "My Activity.html"
 # === Load env ===
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
-
+url = os.getenv("WEBSITE_URL")  # e.g., "http://localhost:8000"
 # === FastAPI setup ===
 app = FastAPI()
 app.add_middleware(
@@ -278,7 +278,7 @@ def get_flow():
     return Flow.from_client_secrets_file(
         CLIENT_SECRETS_FILE,
         scopes=SCOPES,
-        redirect_uri="http://localhost:8000/oauth2callback"
+        redirect_uri= url+"/oauth2callback"
     )
 
 def save_tokens(user_id: str, token_dict: dict):
