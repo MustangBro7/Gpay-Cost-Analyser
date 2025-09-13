@@ -30,3 +30,28 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
     restart: always
+      
+  nginx:
+    image: nginx:latest
+    container_name: gpay-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./nginx/certbot/conf:/etc/letsencrypt
+      - ./nginx/certbot/www:/var/www/certbot
+    depends_on:
+      - api
+    restart: always
+
+  certbot:
+    image: certbot/certbot
+    container_name: gpay-certbot
+    volumes:
+      - ./nginx/certbot/conf:/etc/letsencrypt
+      - ./nginx/certbot/www:/var/www/certbot
+    entrypoint: /bin/sh -c
+    command: >
+      "trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done"
+    restart: always
