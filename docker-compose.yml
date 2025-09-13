@@ -1,30 +1,20 @@
-version: "3.9"
-
 services:
   api:
-    build: .
-    container_name: abhinavmohan12/gpay-api:latest
-    command: uvicorn gemini_test:app --host 0.0.0.0 --port 8000 --reload
+    image: abhinavmohan12/gpay-api:latest   # ✅ Docker Hub image
+    container_name: gpay-api                # ✅ Local container name
     ports:
       - "8000:8000"
     volumes:
-      - .:/app
       - ./tokens:/app/tokens
       - ./credentials.json:/app/credentials.json:ro
       - ./.env:/app/.env:ro
-    environment:
-      - PYTHONUNBUFFERED=1
     restart: always
 
   poller:
-    build: .
-    container_name: abhinavmohan12/gpay-poller:latest
-    command: python GoogleDrivePoll.py
+    image: abhinavmohan12/gpay-poller:latest
+    container_name: gpay-poller
     volumes:
-      - .:/app
       - ./tokens:/app/tokens
       - ./credentials.json:/app/credentials.json:ro
       - ./.env:/app/.env:ro
-    environment:
-      - PYTHONUNBUFFERED=1
     restart: always
