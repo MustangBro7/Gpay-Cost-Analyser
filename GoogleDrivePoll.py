@@ -222,7 +222,7 @@ from google.oauth2.credentials import Credentials
 
 SCOPES = ['https://www.googleapis.com/auth/drive']
 TOKENS_DIR = "tokens"
-ENDPOINT_URL = "http://localhost:8000/classify"
+ENDPOINT_URL = "http://api:8000/classify"
 
 def load_tokens(user_id: str):
     path = os.path.join(TOKENS_DIR, f"{user_id}.json")
