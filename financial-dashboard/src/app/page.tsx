@@ -112,10 +112,11 @@ import { Toaster } from "@/components/ui/sonner"
 export default function Home() {
   const [data, setData] = React.useState<any[]>([])
   const [dateRange, setDateRange] = React.useState<{from: Date, to: Date} | null>(null)
-
+  const website_url = process.env.NEXT_PUBLIC_API_URL
+  console.log("API URL:", website_url)
   // Fetch data for a given date range
   const fetchData = React.useCallback(async (range: {from: Date, to: Date}) => {
-    const response = await fetch('http://127.0.0.1:8000/daterange', {
+    const response = await fetch(`${website_url}/daterange`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

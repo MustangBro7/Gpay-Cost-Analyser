@@ -40,8 +40,8 @@ export function DateRangeForm({
   // }
   const handleSubmit = async () => {
     if (!date?.from || !date?.to) return
-  
-    const response = await fetch('http://127.0.0.1:8000/daterange', {
+  const website_url = process.env.NEXT_PUBLIC_API_URL
+    const response = await fetch(`${website_url}/daterange`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

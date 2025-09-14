@@ -28,10 +28,10 @@ function TransactionItem({
   refetch: () => void
 }){
   const [newClass, setNewClass] = React.useState("")
-
+  const website_url = process.env.NEXT_PUBLIC_API_URL
     const handleReclassify = async () => {
       try {
-        await fetch("http://127.0.0.1:8000/reclassify", {
+        await fetch(`${website_url}/reclassify`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
