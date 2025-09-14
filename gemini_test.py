@@ -362,7 +362,7 @@ def classify_transactions_gemini(api_key, activity_filename, json_file="new_tran
         8. If the receiver is a restaurant, has a food item in its name, or is a food chain, or has the name Zomato classify it as Eating Out.
         9. If the receiver is just someone's name, classify it as Personal Transfer.
         10. If the receiver has Fuel in its name, classify it as Fuel.
-        11. If the receiver doesn't fall into any of these categories, search up the name online and classify.
+        11. If the receiver doesn't fall into any of these categories, intelligently classify it by searching up the name online or classify based on the name intelligently.
         12. Respond in pure JSON only and strictly adhere to these guidelines.
 
         ===Transactions
