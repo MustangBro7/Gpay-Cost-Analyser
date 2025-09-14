@@ -6,6 +6,7 @@ import { addDays, format } from "date-fns"
 import { DateRange } from "react-day-picker"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
+import { Transaction } from "@/types/Transaction"
 import {
   Popover,
   PopoverContent,
@@ -16,7 +17,7 @@ import {
 export function DateRangeForm({
   onDataFetched,
 }: {
-  onDataFetched: (data: any[], range: {from: Date, to: Date}) => void
+  onDataFetched: (data: Transaction[], range: { from: Date; to: Date }) => void
 }){
   const [date, setDate] = React.useState<DateRange | undefined>({
     from: new Date(),

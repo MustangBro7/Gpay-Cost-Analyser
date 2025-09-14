@@ -108,12 +108,12 @@ import * as React from "react"
 import { DateRangeForm } from "../components/ui/DateRangeForm"
 import { PieChartComponent } from "../components/ui/TransactionPieChart"
 import { Toaster } from "@/components/ui/sonner"
+import { Transaction } from "@/types/Transaction"
 
 export default function Home() {
-  const [data, setData] = React.useState<any[]>([])
+  const [data, setData] = React.useState<Transaction[]>([])
   const [dateRange, setDateRange] = React.useState<{from: Date, to: Date} | null>(null)
   const website_url = process.env.NEXT_PUBLIC_API_URL
-  console.log("API URL:", website_url)
   // Fetch data for a given date range
   const fetchData = React.useCallback(async (range: {from: Date, to: Date}) => {
     const response = await fetch(`${website_url}/daterange`, {
@@ -127,10 +127,10 @@ export default function Home() {
     const data = await response.json()
     console.log(data)
     setData(data)
-  }, [])
+  }, [website_url])
 
   // Called by DateRangeForm
-  const handleDataFetched = (data: any[], range: {from: Date, to: Date}) => {
+  const handleDataFetched = (data: Transaction[], range: { from: Date; to: Date }) => {
     setData(data)
     setDateRange(range)
   }
