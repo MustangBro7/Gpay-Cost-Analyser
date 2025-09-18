@@ -18,9 +18,11 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart"
 import { Toaster } from "@/components/ui/sonner"
-
+import { TransactionItem } from "./TransactionItem"
+import { Button } from "@/components/ui/button"
+import { X } from "lucide-react"
 // 👇 Subcomponent for each transaction
-function TransactionItem({
+export function TransactionItem1({
   tx,
   refetch,
 }: {
@@ -130,11 +132,11 @@ export function PieChartComponent({
     ])
   )
 
-  const [selected, setSelected] = React.useState<string | null>(null)
+  const [selected, setSelected] = React.useState<{ classification: string; amount: number } | null>(null)
 
   const filteredTransactions = React.useMemo(() => {
     if (!selected) return []
-    return data.filter((d) => d.Classification === selected)
+    return data.filter((d) => d.Classification === selected.classification)
   }, [selected, data])
   {filteredTransactions.map((tx, idx) => (
     <TransactionItem key={idx} tx={tx} refetch={refetch} />
@@ -162,7 +164,12 @@ export function PieChartComponent({
               nameKey="classification"
               innerRadius={100}
               strokeWidth={10}
-              onClick={(data) => setSelected(data.classification)}
+              onClick={(entry) =>
+                setSelected({
+                  classification: entry.classification,
+                  amount: entry.amount,
+                })
+              }
             >
               <Label
                 content={({ viewBox }) => {
@@ -209,13 +216,26 @@ export function PieChartComponent({
 
       {selected && (
         <div className="mt-4 border-t pt-4 px-6">
-          <h4 className="text-lg font-semibold mb-2">
-            Transactions for: {selected}
-          </h4>
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-lg font-semibold">
+              Transactions for: {selected.classification}
+            </h4>
+            <p className="text-sm text-muted-foreground">
+              Total: <strong>₹{selected.amount.toFixed(2)}</strong>
+            </p>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-6 w-6 text-muted-foreground hover:text-foreground"
+              onClick={() => setSelected(null)}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
           <ul className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
-          {filteredTransactions.map((tx, idx) => (
-    <TransactionItem key={idx} tx={tx} refetch={refetch} />
-  ))}
+            {filteredTransactions.map((tx, idx) => (
+              <TransactionItem key={idx} tx={tx} refetch={refetch} />
+            ))}
           </ul>
         </div>
       )}
