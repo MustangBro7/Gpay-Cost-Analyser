@@ -148,7 +148,7 @@ export function PieChartComponent({
         <CardDescription>Date range selected</CardDescription>
       </CardHeader>
 
-      <CardContent className="flex-1 pb-0">
+      <CardContent className="px-2 sm:px-6 py-2 sm:py-4">
         <ChartContainer
           config={chartConfig}
           className="mx-auto aspect-square max-h-[750px]"

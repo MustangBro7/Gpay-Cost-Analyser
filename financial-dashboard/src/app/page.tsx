@@ -54,11 +54,12 @@
 import * as React from "react"
 import { DateRangeForm } from "../components/ui/DateRangeForm"
 import { PieChartComponent } from "../components/ui/TransactionPieChart"
-import { BarChartComponent } from "../components/ui/BarChartComponent"
-import { LineChartComponent } from "../components/ui/LineChartComponent"
+// import { BarChartComponent } from "../components/ui/BarChartComponent"
+// import { LineChartComponent } from "../components/ui/LineChartComponent"
 import { Toaster } from "@/components/ui/sonner"
 import { Transaction } from "@/types/Transaction"
-
+import { GlowingLineChart } from "@/components/ui/glowing-line"
+import { VerticalBarChart }  from "@/components/ui/VerticalBarChart"
 export default function Home() {
   const [data, setData] = React.useState<Transaction[]>([])
   const [dateRange, setDateRange] = React.useState<{ from: Date; to: Date } | null>(null)
@@ -95,8 +96,8 @@ export default function Home() {
         <PieChartComponent data={data} refetch={refetch} />
         
         <div className="flex flex-col space-y-6">
-          <BarChartComponent data={data} refetch={refetch} />
-          <LineChartComponent data={data} />
+          <VerticalBarChart data={data} refetch={refetch}/>
+          <GlowingLineChart data={data}/>
         </div>
       </div>
 
