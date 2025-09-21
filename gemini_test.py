@@ -232,6 +232,7 @@ from dotenv import load_dotenv
 from typing import List
 from getTransactions import extract_completed_transactions
 from google import genai
+from typing import Optional
 
 # === Config ===
 SCOPES = [
@@ -266,7 +267,7 @@ class DateRange(BaseModel):
 class Transaction(BaseModel):
     Classification: str
     Amount: str
-    Receiver: str
+    Receiver: Optional[str] = None
     Date: str
 
 class ReClassification(BaseModel):
