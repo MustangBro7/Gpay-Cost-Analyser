@@ -10,11 +10,13 @@ import { Transaction } from "@/types/Transaction"
 import { GlowingLineChart } from "@/components/ui/glowing-line"
 import { VerticalBarChart }  from "@/components/ui/VerticalBarChart"
 import { ClassificationFilter } from "@/components/ui/ClassificationFilter"
+import { formatLocalDate } from "@/lib/utils"
 
 export default function Home() {
   const [data, setData] = React.useState<Transaction[]>([])
   const [dateRange, setDateRange] = React.useState<{ from: Date; to: Date } | null>(null)
   const [selectedClassifications, setSelectedClassifications] = React.useState<Set<string>>(new Set())
+  const [isInitialLoad, setIsInitialLoad] = React.useState(true)
   const website_url = process.env.NEXT_PUBLIC_API_URL
 
   const fetchData = React.useCallback(async (range: { from: Date; to: Date }) => {
@@ -22,17 +24,32 @@ export default function Home() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        startDate: range.from.toISOString().split("T")[0],
-        endDate: range.to.toISOString().split("T")[0],
+        startDate: formatLocalDate(range.from),
+        endDate: formatLocalDate(range.to),
       }),
     })
     const data = await response.json()
     setData(data)
+    setIsInitialLoad(false)
   }, [website_url])
+
+  // Auto-load this month's data on initial page load
+  React.useEffect(() => {
+    if (isInitialLoad) {
+      const now = new Date()
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+      
+      const initialRange = { from: startOfMonth, to: endOfMonth }
+      setDateRange(initialRange)
+      fetchData(initialRange)
+    }
+  }, [isInitialLoad, fetchData])
 
   const handleDataFetched = (data: Transaction[], range: { from: Date; to: Date }) => {
     setData(data)
     setDateRange(range)
+    setIsInitialLoad(false)
   }
 
   const refetch = React.useCallback(() => {

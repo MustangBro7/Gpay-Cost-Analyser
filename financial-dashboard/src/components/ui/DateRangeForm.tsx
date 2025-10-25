@@ -2,7 +2,7 @@
 'use client'
 
 import * as React from "react"
-import { addDays, format } from "date-fns"
+import { format } from "date-fns"
 import { DateRange } from "react-day-picker"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
@@ -12,6 +12,16 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { formatLocalDate } from "@/lib/utils"
+import { Loader2 } from "lucide-react"
+
+// Helper function to get start and end of current month
+const getCurrentMonthRange = () => {
+  const now = new Date()
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  return { from: startOfMonth, to: endOfMonth }
+}
 
 // 👇 Accept a callback prop
 export function DateRangeForm({
@@ -19,41 +29,35 @@ export function DateRangeForm({
 }: {
   onDataFetched: (data: Transaction[], range: { from: Date; to: Date }) => void
 }){
+  const currentMonth = getCurrentMonthRange()
   const [date, setDate] = React.useState<DateRange | undefined>({
-    from: new Date(),
-    to: addDays(new Date(), 7),
+    from: currentMonth.from,
+    to: currentMonth.to,
   })
+  const [isLoading, setIsLoading] = React.useState(false)
 
-  // const handleSubmit = async () => {
-  //   if (!date?.from || !date?.to) return
-
-  //   const response = await fetch('http://127.0.0.1:8000/daterange', {
-  //     method: 'POST',
-  //     headers: { 'Content-Type': 'application/json' },
-  //     body: JSON.stringify({
-  //       startDate: date.from.toISOString().split('T')[0],
-  //       endDate: date.to.toISOString().split('T')[0],
-  //     })
-  //   })
-
-  //   const data = await response.json()
-  //   onDataFetched(data, {from: date.from, to: date.to}) // Pass range too
-  // }
   const handleSubmit = async () => {
-    if (!date?.from || !date?.to) return
-  const website_url = process.env.NEXT_PUBLIC_API_URL
-  console.log(website_url)
-    const response = await fetch(`${website_url}/daterange`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        startDate: format(date.from, "yyyy-MM-dd"),
-        endDate: format(date.to, "yyyy-MM-dd"),
+    if (!date?.from || !date?.to || isLoading) return
+    
+    setIsLoading(true)
+    try {
+      const website_url = process.env.NEXT_PUBLIC_API_URL
+      const response = await fetch(`${website_url}/daterange`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          startDate: formatLocalDate(date.from),
+          endDate: formatLocalDate(date.to),
+        })
       })
-    })
-  
-    const data = await response.json()
-    onDataFetched(data, { from: date.from, to: date.to })
+    
+      const data = await response.json()
+      onDataFetched(data, { from: date.from, to: date.to })
+    } catch (error) {
+      console.error('Error fetching data:', error)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -63,6 +67,7 @@ export function DateRangeForm({
           <Button
             variant="outline"
             className="w-[300px] justify-start text-left font-normal"
+            disabled={isLoading}
           >
             {date?.from
               ? date.to
@@ -84,7 +89,16 @@ export function DateRangeForm({
         </PopoverContent>
       </Popover>
 
-      <Button onClick={handleSubmit}>Submit</Button>
+      <Button onClick={handleSubmit} disabled={isLoading}>
+        {isLoading ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Loading...
+          </>
+        ) : (
+          'Submit'
+        )}
+      </Button>
     </div>
   )
 }
