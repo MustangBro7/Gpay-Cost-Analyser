@@ -219,6 +219,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from googleapiclient.errors import HttpError
 from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
 
 SCOPES = ['https://www.googleapis.com/auth/drive']
 TOKENS_DIR = "tokens"
@@ -232,11 +233,34 @@ def load_tokens(user_id: str):
     with open(path, "r") as f:
         return json.load(f)
 
+def save_tokens(user_id: str, token_dict: dict):
+    """Save tokens for a user."""
+    os.makedirs(TOKENS_DIR, exist_ok=True)
+    with open(os.path.join(TOKENS_DIR, f"{user_id}.json"), "w") as f:
+        json.dump(token_dict, f)
+
 def get_user_service(user_id: str):
     token_dict = load_tokens(user_id)
     if not token_dict:
         return None
     creds = Credentials.from_authorized_user_info(token_dict, SCOPES)
+    # Refresh token if needed and save it
+    if creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(Request())
+            # Update stored token with refreshed one
+            updated_token = {
+                "token": creds.token,
+                "refresh_token": creds.refresh_token,
+                "token_uri": creds.token_uri,
+                "client_id": creds.client_id,
+                "client_secret": creds.client_secret,
+                "scopes": list(creds.scopes),
+            }
+            save_tokens(user_id, updated_token)
+        except Exception as e:
+            print(f"Failed to refresh token: {e}")
+            return None
     return build("drive", "v3", credentials=creds)
 
 def find_folder_id(service, folder_name):

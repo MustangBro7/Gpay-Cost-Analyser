@@ -237,6 +237,7 @@ from typing import Optional
 # === Config ===
 SCOPES = [
     "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
     "openid"
@@ -420,6 +421,85 @@ def classify_transactions_gemini(api_key, activity_filename, json_file="new_tran
     print(f"Appended {len(all_classified)} new transactions to '{json_file}'")
     return all_classified
 
+def classify_batch_transactions(api_key, transactions_batch):
+    """Classify a batch of transactions using Gemini."""
+    try:
+        client = genai.Client(api_key=api_key)
+    except Exception as e:
+        print(f"Error initializing genai client: {e}")
+        return []
+
+    if not transactions_batch:
+        return []
+
+    prompt = f"""You are a financial assistant that classifies transactions into various categories.
+
+    ===Response Guidelines
+    1. If there is no receiver, classify it as Personal Contact.
+    2. If the receiver is Blinkit, zepto, classify it as Quick Commerce.
+    3. Only If the receiver is Amazon or Flipkart, classify it as Ecommerce.
+    4. If the receiver is Spotify, Netflix, Hotstar, or Google Play, classify it as Subscriptions.
+    5. If the receiver has BMTC BUS or Bangalore Metro Rail Corporation Ltd, classify it as Public Transport.
+    6. If the receiver is Hungerbox, classify it as Office Lunch.
+    7. If the receiver has 'super market', 'supermarket', 'store', or 'mart' in its name, classify it strictly as Grocery.
+    8. If the receiver is a restaurant, has a food item in its name, or is a food chain, or has the name Zomato classify it as Eating Out.
+    9. If the receiver is just someone's name, classify it as Personal Transfer.
+    10. If the receiver has Fuel in its name, classify it as Fuel.
+    11. If the receiver doesn't fall into any of these categories, intelligently classify it by searching up the name online or classify based on the name intelligently.
+    12. Respond in pure JSON only and strictly adhere to these guidelines.
+
+    ===Transactions
+    {transactions_batch}
+
+    === Response Format
+    Return a JSON array of objects with the following format:
+    [
+        {{
+            "Amount": "Amount associated with the transaction, do not include the currency symbol",
+            "Classification": "Whatever you classified it as",
+            "Receiver": "Receiver's name",
+            "Date": "Date and time of transaction in the format YYYY-MM-DD HH:MM:SS"
+        }}
+    ]
+    """
+
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.5-flash-lite-preview-06-17",
+            contents=prompt
+        )
+    except Exception as e:
+        print(f"Error generating content: {e}")
+        return []
+
+    try:
+        clean_content = (
+            response.text.strip()
+            .removeprefix("```json")
+            .removesuffix("```")
+            .strip()
+        )
+    except Exception as e:
+        print(f"Error cleaning response: {e}")
+        return []
+
+    try:
+        json_data = json.loads(clean_content)
+        if isinstance(json_data, dict):
+            return [json_data]
+        elif isinstance(json_data, list):
+            return json_data
+        else:
+            return []
+    except json.JSONDecodeError as e:
+        print(f"Error: The content is not valid JSON. {e}")
+        print("Content attempted to write:")
+        print(clean_content)
+        return []
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        return []
+
 def load_transactions_between(start_date: date, end_date: date):
     with open(filename, "r") as f:
         data = json.load(f)
@@ -435,6 +515,58 @@ def load_transactions_between(start_date: date, end_date: date):
 @app.post("/classify")
 def classify_transactions():
     classify_transactions_gemini(api_key, activity_filename)
+
+@app.post("/classify-email")
+def classify_email_transactions():
+    # Load pending email transactions
+    pending_file = "pending_transactions.json"
+    try:
+        with open(pending_file, "r", encoding="utf-8") as f:
+            pending_transactions = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        print("No pending email transactions found.")
+        return {"message": "No pending transactions"}
+    
+    # Load existing classified transactions
+    try:
+        with open(filename, "r", encoding="utf-8") as f:
+            existing = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        existing = []
+    
+    # For email transactions, only filter duplicates within pending_transactions
+    # Don't reconcile against existing (which may include takeout transactions)
+    # This ensures email transactions are always processed
+    new_transactions = []
+    seen_keys = set()
+    
+    for tx in pending_transactions:
+        key = (tx.get("Date", ""), tx.get("RawText", ""))
+        if key not in seen_keys:
+            seen_keys.add(key)
+            new_transactions.append(tx)
+        else:
+            print(f"Skipping duplicate within email batch: {tx.get('Date', 'unknown date')}")
+    
+    if not new_transactions:
+        # Clear pending file
+        with open(pending_file, "w") as f:
+            json.dump([], f)
+        return {"message": "No new transactions to classify"}
+    
+    # Classify the new transactions using Gemini
+    classified = classify_batch_transactions(api_key, new_transactions)
+    
+    # Append to existing
+    updated = existing + classified
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(updated, f, indent=2, ensure_ascii=False)
+    
+    # Clear pending file
+    with open(pending_file, "w") as f:
+        json.dump([], f)
+    
+    return {"message": f"Classified {len(classified)} transactions", "count": len(classified)}
 
 @app.post("/daterange")
 def recieve_date_range(date_range: DateRange):

@@ -118,20 +118,22 @@ def getTransactionsInBatches(batch_size=500):
 def extract_completed_transactions(
     filename, batch_size=500, json_file="new_transactions.json"
 ):
-    # Load latest transaction date from JSON
+    # Load existing transactions for reconciliation (takeout source only)
+    # We only reconcile against transactions that have a source marker or all if none exist
     try:
         with open(json_file, "r", encoding="utf-8") as f:
             existing = json.load(f)
         if existing:
-            latest_date = max(
-                datetime.strptime(tx["Date"], "%Y-%m-%d %H:%M:%S")
+            # Create a set of (Date, RawText) tuples for exact duplicate matching
+            existing_keys = {
+                (tx.get("Date", ""), tx.get("RawText", ""))
                 for tx in existing
-            )
-            print(f"Latest transaction date in JSON: {latest_date}")
+            }
+            print(f"Found {len(existing)} existing transactions for reconciliation")
         else:
-            latest_date = None
+            existing_keys = set()
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
-        latest_date = None
+        existing_keys = set()
 
     # Parse HTML
     with open(filename, "r", encoding="utf-8") as file:
@@ -139,7 +141,7 @@ def extract_completed_transactions(
     soup = BeautifulSoup(html, "html.parser")
 
     results = []
-    seen = set()  # to avoid duplicates
+    seen = set()  # to avoid duplicates within the current HTML file
 
     # ✅ Allow 3 or 4 letter months (Sep / Sept)
     date_pattern = re.compile(
@@ -177,21 +179,28 @@ def extract_completed_transactions(
                         date_str, "%d %b %Y, %H:%M:%S GMT%z"
                     ).replace(tzinfo=None)
 
-                    if latest_date is None or tx_date > latest_date:
-                        key = (tx_text, tx_date.strftime("%Y-%m-%d %H:%M:%S"))
-                        if key not in seen:  # ✅ prevent duplicates
-                            seen.add(key)
-                            results.append(
-                                {
-                                    "RawText": tx_text,
-                                    "Date": tx_date.strftime("%Y-%m-%d %H:%M:%S"),
-                                }
-                            )
+                    tx_date_str = tx_date.strftime("%Y-%m-%d %H:%M:%S")
+                    # Use consistent key format: (Date, RawText) for both seen and existing_keys
+                    key = (tx_date_str, tx_text)
+                    
+                    # Check for duplicates:
+                    # 1. Within current HTML file (using seen set)
+                    # 2. Against existing classified transactions (exact Date + RawText match)
+                    if key not in seen and key not in existing_keys:
+                        seen.add(key)
+                        results.append(
+                            {
+                                "RawText": tx_text,
+                                "Date": tx_date_str,
+                            }
+                        )
+                    elif key in existing_keys:
+                        print(f"Skipping duplicate transaction from takeout: {tx_date_str} - {tx_text[:50]}...")
                 except Exception as e:
                     print(f"Could not parse date from: {date_str} ({e})")
                     continue
 
-    print(f"Found {len(results)} new transactions")
+    print(f"Found {len(results)} new unique transactions from takeout (after reconciliation)")
 
     for i in range(0, len(results), batch_size):
         yield results[i : i + batch_size]

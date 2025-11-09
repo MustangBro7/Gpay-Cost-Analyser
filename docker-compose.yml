@@ -32,6 +32,22 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
     restart: always
+  
+  gmail-monitor:
+    build: .
+    image: abhinavmohan12/gpay-gmail-monitor:latest
+    container_name: gpay-gmail-monitor
+    command: python GmailMonitor.py
+    volumes:
+      - .:/app
+      - ./tokens:/app/tokens
+      - ./credentials.json:/app/credentials.json:ro
+      - ./.env:/app/.env:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - api
+    restart: always
       
   nginx:
     image: nginx:latest
