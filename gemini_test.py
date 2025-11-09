@@ -220,7 +220,8 @@
 #     return {"message": "Login successful! Tokens saved."}
 
 import os, json
-from fastapi import FastAPI, HTTPException, Request
+from pathlib import Path
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from starlette.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -234,6 +235,8 @@ from getTransactions import extract_completed_transactions
 from google import genai
 from typing import Optional
 
+from user_context import atomic_write_json, get_activity_path, get_transactions_path, load_json
+
 # === Config ===
 SCOPES = [
     "https://www.googleapis.com/auth/drive",
@@ -243,8 +246,6 @@ SCOPES = [
 ]
 CLIENT_SECRETS_FILE = "credentials.json"
 TOKENS_DIR = "tokens"
-filename = "new_transactions.json"
-activity_filename = "My Activity.html"
 
 # === Load env ===
 load_dotenv()
@@ -286,6 +287,13 @@ def save_tokens(user_id: str, token_dict: dict):
     os.makedirs(TOKENS_DIR, exist_ok=True)
     with open(os.path.join(TOKENS_DIR, f"{user_id}.json"), "w") as f:
         json.dump(token_dict, f)
+
+
+def require_user_id(x_user_id: str = Header(..., alias="X-User-ID")) -> str:
+    token_path = Path(TOKENS_DIR) / f"{x_user_id}.json"
+    if not token_path.exists():
+        raise HTTPException(status_code=403, detail="Unknown user or missing tokens. Please log in.")
+    return x_user_id
 
 @app.get("/login")
 def login():
@@ -330,7 +338,7 @@ def list_users():
 
 # === Transaction classification ===
 
-def classify_transactions_gemini(api_key, activity_filename, json_file="new_transactions.json"):
+def classify_transactions_gemini(api_key, activity_path: Path, json_path: Path):
     try:
         client = genai.Client(api_key=api_key)
     except Exception as e:
@@ -338,16 +346,16 @@ def classify_transactions_gemini(api_key, activity_filename, json_file="new_tran
         return None
 
     # Step 1: Load existing transactions if file exists
-    try:
-        with open(json_file, "r", encoding="utf-8") as f:
-            existing = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        existing = []
+    existing = load_json(json_path, default_factory=list) or []
 
     all_classified = []
 
     # Step 2: Process new batches
-    for batch in extract_completed_transactions(activity_filename):
+    if not activity_path.exists():
+        print(f"No activity file for classification: {activity_path}")
+        return []
+
+    for batch in extract_completed_transactions(activity_path, json_file=json_path):
         print("Sending batch:")
 
         prompt = f"""You are a financial assistant that classifies transactions into various categories.
@@ -414,15 +422,13 @@ def classify_transactions_gemini(api_key, activity_filename, json_file="new_tran
 
     # Step 3: Append new transactions to existing and save
     updated = existing + all_classified
-    with open(json_file, "w", encoding="utf-8") as f:
-        json.dump(updated, f, indent=2, ensure_ascii=False)
+    atomic_write_json(json_path, updated)
 
-    print(f"Appended {len(all_classified)} new transactions to '{json_file}'")
+    print(f"Appended {len(all_classified)} new transactions to '{json_path}'")
     return all_classified
 
-def load_transactions_between(start_date: date, end_date: date):
-    with open(filename, "r") as f:
-        data = json.load(f)
+def load_transactions_between(json_path: Path, start_date: date, end_date: date):
+    data = load_json(json_path, default_factory=list) or []
 
     filtered = []
     for item in data:
@@ -433,26 +439,20 @@ def load_transactions_between(start_date: date, end_date: date):
     return filtered
 
 @app.post("/classify")
-def classify_transactions():
-    classify_transactions_gemini(api_key, activity_filename)
+def classify_transactions(user_id: str = Depends(require_user_id)):
+    activity_path = get_activity_path(user_id)
+    transactions_path = get_transactions_path(user_id)
+    return classify_transactions_gemini(api_key, activity_path, transactions_path)
 
 @app.post("/daterange")
-def recieve_date_range(date_range: DateRange):
-    with open(filename, "r") as f:
-        data = json.load(f)
-    filtered = [
-        item for item in data
-        if date_range.startDate <= datetime.strptime(item["Date"], "%Y-%m-%d %H:%M:%S").date() <= date_range.endDate
-    ]
-    return filtered
+def recieve_date_range(date_range: DateRange, user_id: str = Depends(require_user_id)):
+    transactions_path = get_transactions_path(user_id)
+    return load_transactions_between(transactions_path, date_range.startDate, date_range.endDate)
 
 @app.post("/reclassify")
-def reclassify(Reclassification: ReClassification):
-    try:
-        with open(filename, "r") as f:
-            transactions: List[dict] = json.load(f)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load transactions: {str(e)}")
+def reclassify(Reclassification: ReClassification, user_id: str = Depends(require_user_id)):
+    transactions_path = get_transactions_path(user_id)
+    transactions: List[dict] = load_json(transactions_path, default_factory=list) or []
 
     match_found = False
     for tx in transactions:
@@ -465,8 +465,7 @@ def reclassify(Reclassification: ReClassification):
         raise HTTPException(status_code=404, detail="Transaction not found.")
 
     try:
-        with open(filename, "w") as f:
-            json.dump(transactions, f, ensure_ascii=False, indent=2)
+        atomic_write_json(transactions_path, transactions)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save updated transactions: {str(e)}")
 

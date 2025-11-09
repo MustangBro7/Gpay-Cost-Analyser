@@ -219,6 +219,10 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from googleapiclient.errors import HttpError
 from google.oauth2.credentials import Credentials
+from pathlib import Path
+from typing import Optional
+
+from user_context import atomic_write_bytes, get_activity_path, get_user_dir
 
 SCOPES = ['https://www.googleapis.com/auth/drive']
 TOKENS_DIR = "tokens"
@@ -262,16 +266,16 @@ def list_takeout_files_in_folder(service, folder_id):
         print(f"Found: {f['name']} (MIME: {f['mimeType']})")
     return [f for f in files if f['name'].endswith('.zip')]
 
-def download_file(service, file_id, filename):
+def download_file(service, file_id, destination_path: Path):
     request = service.files().get_media(fileId=file_id)
-    with open(filename, 'wb') as f:
+    with destination_path.open('wb') as f:
         downloader = MediaIoBaseDownload(f, request)
         done = False
         while not done:
             status, done = downloader.next_chunk()
             if status:
                 print(f"Download {int(status.progress() * 100)}%.")
-    print(f"Downloaded {filename}")
+    print(f"Downloaded {destination_path}")
 
 def delete_file_from_drive(service, file_id, filename):
     try:
@@ -285,56 +289,57 @@ def get_most_recent_file(files):
         return None
     return sorted(files, key=lambda x: x['createdTime'], reverse=True)[0]
 
-def keep_only_one_takeout_file():
-    local_files = [f for f in os.listdir('.') if f.startswith('takeout-') and f.endswith('.zip')]
+def keep_only_one_takeout_file(user_dir: Path) -> Optional[Path]:
+    local_files = list(user_dir.glob("takeout-*.zip"))
     if not local_files:
         return None
-    files_with_1 = [f for f in local_files if '-1-' in f]
-    to_keep = files_with_1[0] if files_with_1 else max(local_files, key=lambda f: os.path.getsize(f))
-    for f in local_files:
-        if f != to_keep:
+    files_with_1 = [f for f in local_files if "-1-" in f.name]
+    to_keep = files_with_1[0] if files_with_1 else max(local_files, key=lambda f: f.stat().st_size)
+    for file_path in local_files:
+        if file_path != to_keep:
             try:
-                os.remove(f)
-                print(f"Deleted local file: {f}")
+                file_path.unlink()
+                print(f"Deleted local file: {file_path}")
             except Exception as e:
-                print(f"Could not delete {f}: {e}")
+                print(f"Could not delete {file_path}: {e}")
     print(f"Kept local file: {to_keep}")
-    return os.path.abspath(to_keep)
+    return to_keep
 
-def extract_my_activity(zip_path, target_filename="My Activity.html"):
+def extract_my_activity(zip_path: Path, activity_path: Path, user_id: str, target_filename: str = "My Activity.html"):
     """Extracts 'My Activity.html' from the given zip file, replaces existing one, and deletes the zip."""
     try:
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             for member in zip_ref.namelist():
                 if member.endswith(target_filename):
-                    extracted_path = os.path.join(os.getcwd(), target_filename)
-
                     # Overwrite existing My Activity.html
-                    with zip_ref.open(member) as source, open(extracted_path, "wb") as target:
-                        target.write(source.read())
+                    with zip_ref.open(member) as source:
+                        atomic_write_bytes(activity_path, source.read())
 
-                    print(f"Extracted {target_filename} to {extracted_path}")
+                    print(f"Extracted {target_filename} to {activity_path}")
 
                     # 🔥 Call backend classify endpoint
                     try:
-                        response = requests.post(ENDPOINT_URL)
-                        print(f"Called endpoint {ENDPOINT_URL}, status: {response.status_code}")
+                        response = requests.post(
+                            ENDPOINT_URL,
+                            headers={"X-User-ID": user_id},
+                        )
+                        print(f"[{user_id}] Called endpoint {ENDPOINT_URL}, status: {response.status_code}")
                     except Exception as e:
-                        print(f"Failed to call endpoint: {e}")
+                        print(f"[{user_id}] Failed to call endpoint: {e}")
 
                     # ✅ Delete the zip after extraction
                     try:
-                        os.remove(zip_path)
+                        zip_path.unlink()
                         print(f"Deleted zip file: {zip_path}")
                     except Exception as e:
-                        print(f"Could not delete zip {zip_path}: {e}")
+                        print(f"[{user_id}] Could not delete zip {zip_path}: {e}")
 
-                    return extracted_path
+                    return activity_path
 
-        print(f"{target_filename} not found in {zip_path}")
+        print(f"[{user_id}] {target_filename} not found in {zip_path}")
         return None
     except Exception as e:
-        print(f"Error extracting {target_filename}: {e}")
+        print(f"[{user_id}] Error extracting {target_filename}: {e}")
         return None
 
 def poll_and_download(user_id: str, folder_name="takeout"):
@@ -348,19 +353,26 @@ def poll_and_download(user_id: str, folder_name="takeout"):
         print(f"No folder '{folder_name}' found for {user_id}")
         return
 
+    user_dir = get_user_dir(user_id)
+    activity_path = get_activity_path(user_id)
+
     while True:
         files = list_takeout_files_in_folder(service, folder_id)
         if files:
             most_recent = get_most_recent_file(files)
             filename = most_recent['name']
-            if not os.path.exists(filename):
+            target_zip_path = user_dir / filename
+
+            if not target_zip_path.exists():
                 print(f"[{user_id}] Downloading {filename}")
-                download_file(service, most_recent['id'], filename)
+                download_file(service, most_recent['id'], target_zip_path)
                 delete_file_from_drive(service, most_recent['id'], filename)
-                kept_path = keep_only_one_takeout_file()
-                extract_my_activity(kept_path)
             else:
-                print(f"[{user_id}] {filename} already exists, skipping.")
+                print(f"[{user_id}] {filename} already exists, skipping download.")
+
+            kept_path = keep_only_one_takeout_file(user_dir)
+            if kept_path:
+                extract_my_activity(kept_path, activity_path, user_id)
         else:
             print(f"[{user_id}] No takeout files found.")
         time.sleep(300)  # poll every 5 minutes
