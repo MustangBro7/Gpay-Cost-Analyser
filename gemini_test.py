@@ -229,7 +229,7 @@ from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from dotenv import load_dotenv
-from typing import List
+from typing import List, Dict
 from getTransactions import extract_completed_transactions
 from google import genai
 from typing import Optional
@@ -269,10 +269,22 @@ class Transaction(BaseModel):
     Amount: str
     Receiver: Optional[str] = None
     Date: str
+    PaidToMe: Optional[str] = None
+    Payers: Optional[List[Dict[str, str]]] = None
+    OriginalAmount: Optional[str] = None  # Store original amount before normalization
 
 class ReClassification(BaseModel):
     original: Transaction
     newClassification: str
+
+class Payer(BaseModel):
+    name: str
+    amount: str
+
+class Normalization(BaseModel):
+    original: Transaction
+    paidToMe: Optional[str] = None
+    payers: Optional[List[Payer]] = None
 
 # === OAuth Helpers ===
 def get_flow():
@@ -471,3 +483,142 @@ def reclassify(Reclassification: ReClassification):
         raise HTTPException(status_code=500, detail=f"Failed to save updated transactions: {str(e)}")
 
     return {"status": "updated", "data": transactions}
+
+@app.post("/normalize")
+def normalize(normalization: Normalization):
+    try:
+        with open(filename, "r") as f:
+            transactions: List[dict] = json.load(f)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load transactions: {str(e)}")
+
+    match_found = False
+    for tx in transactions:
+        if tx["Date"] == normalization.original.Date:
+            print(f"Found transaction to normalize: Date={tx['Date']}, Current Amount={tx.get('Amount')}")
+            
+            # Calculate paid to me as sum of all payer amounts
+            paid_to_me_total = 0.0
+            if normalization.payers is not None and len(normalization.payers) > 0:
+                for payer in normalization.payers:
+                    try:
+                        # Remove commas and parse amount
+                        amount_str = payer.amount.replace(",", "").strip()
+                        if amount_str:
+                            paid_to_me_total += float(amount_str)
+                    except (ValueError, AttributeError) as e:
+                        print(f"Error parsing payer amount: {e}")
+                        pass  # Skip invalid amounts
+            
+            print(f"Calculated PaidToMe total: {paid_to_me_total}")
+            
+            # Update normalization fields
+            if paid_to_me_total > 0:
+                # Determine the original amount (never changes once set)
+                # Use OriginalAmount from request if available (calculated by frontend)
+                # Otherwise, calculate from request Amount + existing PaidToMe
+                try:
+                    # Check if request has OriginalAmount (calculated by frontend)
+                    if hasattr(normalization.original, 'OriginalAmount') and normalization.original.OriginalAmount:
+                        true_original = float(normalization.original.OriginalAmount.replace(",", "").strip())
+                        print(f"Using OriginalAmount from request: {true_original}")
+                    else:
+                        # Calculate from request Amount + existing PaidToMe
+                        request_amount = float(normalization.original.Amount.replace(",", "").strip())
+                        existing_paid_to_me = float(tx.get("PaidToMe", "0").replace(",", "").strip()) if tx.get("PaidToMe") else 0.0
+                        # Request amount might be net, so add existing PaidToMe to get original
+                        true_original = request_amount + existing_paid_to_me
+                        print(f"Calculated OriginalAmount: Request={request_amount}, ExistingPaidToMe={existing_paid_to_me}, Original={true_original}")
+                    
+                    # Store or update OriginalAmount
+                    if "OriginalAmount" not in tx or tx["OriginalAmount"] is None:
+                        tx["OriginalAmount"] = str(true_original)
+                        print(f"Stored OriginalAmount: {true_original}")
+                    else:
+                        existing_original = float(tx["OriginalAmount"].replace(",", "").strip())
+                        # Update if different (to fix incorrect values)
+                        if abs(existing_original - true_original) > 0.01:
+                            print(f"Correcting OriginalAmount: Old={existing_original}, New={true_original}")
+                            tx["OriginalAmount"] = str(true_original)
+                        else:
+                            print(f"Using existing OriginalAmount: {tx['OriginalAmount']}")
+                except (ValueError, AttributeError) as e:
+                    print(f"Error determining OriginalAmount: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    # Fallback: use current Amount as original if no PaidToMe exists
+                    if "OriginalAmount" not in tx or tx["OriginalAmount"] is None:
+                        current_amount = float(tx["Amount"].replace(",", "").strip())
+                        existing_paid_to_me = float(tx.get("PaidToMe", "0").replace(",", "").strip()) if tx.get("PaidToMe") else 0.0
+                        original_amount = current_amount + existing_paid_to_me
+                        tx["OriginalAmount"] = str(original_amount)
+                        print(f"Fallback: Stored OriginalAmount: {original_amount}")
+                
+                # Store normalization data
+                tx["PaidToMe"] = str(paid_to_me_total)
+                # Convert Payer objects to dictionaries
+                tx["Payers"] = [{"name": payer.name, "amount": payer.amount} for payer in normalization.payers]
+                
+                # Calculate net amount (original - paid to me) and update Amount
+                try:
+                    original_amount_str = tx["OriginalAmount"].replace(",", "").strip()
+                    original_amount = float(original_amount_str)
+                    net_amount = original_amount - paid_to_me_total
+                    
+                    # CRITICAL: Update the Amount field to the net amount (this is what shows in charts)
+                    old_amount = tx["Amount"]
+                    # Format to 2 decimal places and remove trailing zeros, but keep as string
+                    if net_amount == int(net_amount):
+                        formatted_net = str(int(net_amount))
+                    else:
+                        formatted_net = f"{net_amount:.2f}".rstrip('0').rstrip('.')
+                    
+                    # Force update the Amount field
+                    tx["Amount"] = formatted_net
+                    
+                    # Verify the update
+                    if tx["Amount"] != formatted_net:
+                        print(f"ERROR: Amount update failed! Expected {formatted_net}, got {tx['Amount']}")
+                    else:
+                        print(f"SUCCESS: Updated transaction Amount - Original={original_amount}, PaidToMe={paid_to_me_total}, Net={net_amount}, Old Amount={old_amount}, New Amount={tx['Amount']}")
+                        
+                except (ValueError, AttributeError) as e:
+                    print(f"ERROR updating amount: {e}, OriginalAmount={tx.get('OriginalAmount')}, tx keys={list(tx.keys())}")
+                    import traceback
+                    traceback.print_exc()
+                    pass  # Keep original amount if parsing fails
+            else:
+                # Remove normalization if no payers - restore original amount
+                tx.pop("PaidToMe", None)
+                tx.pop("Payers", None)
+                if "OriginalAmount" in tx and tx["OriginalAmount"] is not None:
+                    tx["Amount"] = tx["OriginalAmount"]
+                    tx.pop("OriginalAmount", None)
+                    print(f"Removed normalization, restored Amount to OriginalAmount: {tx['Amount']}")
+            
+            match_found = True
+            break
+
+    if not match_found:
+        raise HTTPException(status_code=404, detail="Transaction not found.")
+
+    try:
+        with open(filename, "w") as f:
+            json.dump(transactions, f, ensure_ascii=False, indent=2)
+        print(f"Successfully saved transactions to {filename}")
+    except Exception as e:
+        print(f"Error saving transactions: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save updated transactions: {str(e)}")
+
+    # Find and return the updated transaction for verification
+    updated_tx = None
+    for tx in transactions:
+        if tx["Date"] == normalization.original.Date:
+            updated_tx = tx
+            break
+    
+    return {
+        "status": "updated", 
+        "data": transactions,
+        "updated_transaction": updated_tx
+    }

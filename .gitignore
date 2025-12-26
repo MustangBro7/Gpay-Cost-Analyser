@@ -1,0 +1,5 @@
+# Ignore files starting with underscore
+__*
+._*
+new_transactions.json
+
