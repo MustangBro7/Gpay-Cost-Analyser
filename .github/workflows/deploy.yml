@@ -148,6 +148,17 @@ jobs:
               exit 1
             fi
             
+            # Pull latest code from git
+            echo "Pulling latest code from git..."
+            if [ -d ".git" ]; then
+              git fetch origin
+              git reset --hard origin/main
+              echo "✅ Code updated to latest version"
+            else
+              echo "⚠️  Warning: .git directory not found. Skipping git pull."
+              echo "If this is expected, ensure your code is up to date manually."
+            fi
+            
             # Pull latest images
             echo "Pulling latest Docker images..."
             $DOCKER_COMPOSE pull api poller
