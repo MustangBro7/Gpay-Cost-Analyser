@@ -1,0 +1,160 @@
+name: Deploy to AWS Lightsail
+
+# ============================================================================
+# REQUIRED GITHUB SECRETS
+# ============================================================================
+# This workflow requires the following secrets to be configured in your
+# GitHub repository settings (Settings > Secrets and variables > Actions):
+#
+# 1. DOCKERHUB_USERNAME
+#    - Your Docker Hub username (e.g., "abhinavmohan12")
+#
+# 2. DOCKERHUB_TOKEN
+#    - Docker Hub access token with push permissions
+#    - Generate at: https://hub.docker.com/settings/security
+#    - Must have "Read, Write & Delete" permissions
+#
+# 3. LIGHTSAIL_HOST
+#    - IP address or hostname of your AWS Lightsail instance
+#    - Example: "54.123.45.67" or "my-instance.us-east-1.amazonaws.com"
+#
+# 4. LIGHTSAIL_SSH_KEY
+#    - Private SSH key for accessing the Lightsail instance
+#    - The corresponding public key should be added to ~/.ssh/authorized_keys
+#    - Include the full key including -----BEGIN and -----END lines
+#
+# 5. LIGHTSAIL_USER
+#    - SSH username for the Lightsail instance
+#    - Typically "ubuntu" for Ubuntu instances or "ec2-user" for Amazon Linux
+#
+# ============================================================================
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+  API_IMAGE: abhinavmohan12/gpay-api
+  POLLER_IMAGE: abhinavmohan12/gpay-poller
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata for API image
+        id: meta-api
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.API_IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Extract metadata for Poller image
+        id: meta-poller
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.POLLER_IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta-api.outputs.tags }}
+          labels: ${{ steps.meta-api.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.API_IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.API_IMAGE }}:buildcache,mode=max
+
+      - name: Build and push Poller image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta-poller.outputs.tags }}
+          labels: ${{ steps.meta-poller.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.POLLER_IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.POLLER_IMAGE }}:buildcache,mode=max
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
+
+      - name: Add Lightsail to known hosts
+        run: |
+          ssh-keyscan -H ${{ secrets.LIGHTSAIL_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to Lightsail
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} << 'EOF'
+            set -e
+            
+            # Navigate to project directory (adjust path if needed)
+            cd ~/Gpay-Cost-Analyser || cd /app/Gpay-Cost-Analyser || cd /home/$USER/Gpay-Cost-Analyser
+            
+            # Pull latest images
+            echo "Pulling latest Docker images..."
+            docker-compose pull api poller
+            
+            # Restart services with new images
+            echo "Restarting services..."
+            docker-compose up -d api poller
+            
+            # Wait a moment for services to start
+            sleep 5
+            
+            # Verify services are running
+            echo "Verifying deployment..."
+            docker-compose ps
+            
+            # Check if containers are healthy
+            if docker-compose ps | grep -q "Up"; then
+              echo "✅ Deployment successful! Services are running."
+            else
+              echo "❌ Warning: Some services may not be running properly."
+              docker-compose ps
+              exit 1
+            fi
+          EOF
+
+      - name: Deployment Status
+        if: success()
+        run: |
+          echo "✅ Deployment completed successfully!"
+
+      - name: Deployment Failed
+        if: failure()
+        run: |
+          echo "❌ Deployment failed. Please check the logs above."
+
