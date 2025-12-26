@@ -120,30 +120,55 @@ jobs:
           ssh -o StrictHostKeyChecking=no ${{ secrets.LIGHTSAIL_USER }}@${{ secrets.LIGHTSAIL_HOST }} << 'EOF'
             set -e
             
+            # Detect which docker compose command is available
+            if command -v docker &> /dev/null && docker compose version &> /dev/null; then
+              DOCKER_COMPOSE="docker compose"
+              echo "Using Docker Compose v2 (docker compose)"
+            elif command -v docker-compose &> /dev/null; then
+              DOCKER_COMPOSE="docker-compose"
+              echo "Using Docker Compose v1 (docker-compose)"
+            else
+              echo "❌ Error: Neither 'docker compose' nor 'docker-compose' is available"
+              echo "Please install Docker Compose on your Lightsail instance"
+              exit 1
+            fi
+            
             # Navigate to project directory (adjust path if needed)
-            cd ~/Gpay-Cost-Analyser || cd /app/Gpay-Cost-Analyser || cd /home/$USER/Gpay-Cost-Analyser
+            if [ ! -f "docker-compose.yml" ]; then
+              cd ~/Gpay-Cost-Analyser 2>/dev/null || \
+              cd /app/Gpay-Cost-Analyser 2>/dev/null || \
+              cd /home/$USER/Gpay-Cost-Analyser 2>/dev/null || \
+              { echo "❌ Error: Could not find project directory with docker-compose.yml"; exit 1; }
+            fi
+            
+            echo "Current directory: $(pwd)"
+            echo "Checking for docker-compose.yml..."
+            if [ ! -f "docker-compose.yml" ]; then
+              echo "❌ Error: docker-compose.yml not found in $(pwd)"
+              exit 1
+            fi
             
             # Pull latest images
             echo "Pulling latest Docker images..."
-            docker-compose pull api poller
+            $DOCKER_COMPOSE pull api poller
             
             # Restart services with new images
             echo "Restarting services..."
-            docker-compose up -d api poller
+            $DOCKER_COMPOSE up -d api poller
             
             # Wait a moment for services to start
             sleep 5
             
             # Verify services are running
             echo "Verifying deployment..."
-            docker-compose ps
+            $DOCKER_COMPOSE ps
             
             # Check if containers are healthy
-            if docker-compose ps | grep -q "Up"; then
+            if $DOCKER_COMPOSE ps | grep -q "Up"; then
               echo "✅ Deployment successful! Services are running."
             else
               echo "❌ Warning: Some services may not be running properly."
-              docker-compose ps
+              $DOCKER_COMPOSE ps
               exit 1
             fi
           EOF
