@@ -392,7 +392,7 @@ def classify_transactions_gemini(api_key, activity_filename, json_file="new_tran
 
         try:
             response = client.models.generate_content(
-                model="gemini-2.5-flash-lite-preview-06-17",
+                model="gemini-2.5-flash-lite",
                 contents=prompt
             )
         except Exception as e:
