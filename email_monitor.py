@@ -430,34 +430,13 @@ def connect_and_idle(user_id: str):
                 print(f"Successfully connected as {email_address}")
                 
                 # Select INBOX
-                client.select_folder("INBOX")
+                select_info = client.select_folder("INBOX")
                 
-                # Get already processed IDs
-                processed_ids = load_processed_ids()
-                
-                # Search for unread emails from HDFC
-                messages = client.search([
-                    "UNSEEN",
-                    "FROM", HDFC_SENDER
-                ])
-                
-                # Process any existing unread HDFC emails
-                if messages:
-                    print(f"Found {len(messages)} unread HDFC emails")
-                    for uid in messages:
-                        try:
-                            fetch_data = client.fetch([uid], ["RFC822", "ENVELOPE"])
-                            for uid_key, data in fetch_data.items():
-                                raw_email = data[b"RFC822"]
-                                msg = email.message_from_bytes(raw_email)
-                                message_id = msg.get("Message-ID", str(uid))
-                                
-                                if message_id not in processed_ids:
-                                    if process_email(msg, message_id):
-                                        # Mark as read
-                                        client.set_flags([uid], [b"\\Seen"])
-                        except Exception as e:
-                            print(f"Error processing email {uid}: {e}")
+                # Record the current highest UID - only process emails AFTER this
+                # UIDNEXT is the UID that will be assigned to the next message
+                baseline_uid = select_info.get(b'UIDNEXT', 1)
+                print(f"Baseline UID: {baseline_uid} - only processing emails with UID >= this")
+                print("Skipping existing emails - only monitoring for new ones...")
                 
                 # Start IDLE mode for real-time monitoring
                 print("Starting IDLE mode for real-time email monitoring...")
@@ -476,17 +455,23 @@ def connect_and_idle(user_id: str):
                         if responses:
                             print(f"IDLE responses: {responses}")
                             
-                            # Check for new HDFC emails
+                            # Check for new HDFC emails with UID >= baseline (arrived after we started)
                             messages = client.search([
                                 "UNSEEN",
-                                "FROM", HDFC_SENDER
+                                "FROM", HDFC_SENDER,
+                                f"UID", f"{baseline_uid}:*"
                             ])
                             
                             if messages:
-                                print(f"Found {len(messages)} new HDFC emails")
+                                print(f"Found {len(messages)} new HDFC emails (UID >= {baseline_uid})")
                                 processed_ids = load_processed_ids()
                                 
                                 for uid in messages:
+                                    # Double-check UID is >= baseline
+                                    if uid < baseline_uid:
+                                        print(f"Skipping UID {uid} (before baseline {baseline_uid})")
+                                        continue
+                                        
                                     try:
                                         fetch_data = client.fetch([uid], ["RFC822"])
                                         for uid_key, data in fetch_data.items():
