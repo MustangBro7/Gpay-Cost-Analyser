@@ -23,7 +23,7 @@ load_dotenv()
 
 TOKENS_DIR = "tokens"
 TRANSACTIONS_FILE = "new_transactions.json"
-HDFC_SENDER = "alerts@hdfc.com"
+HDFC_SENDER = "alerts@hdfcbank.net"
 PROCESSED_IDS_FILE = "processed_email_ids.json"
 
 # Gmail IMAP settings
@@ -145,68 +145,82 @@ def parse_hdfc_debit_email(body: str) -> Optional[Dict]:
     """
     Parse HDFC Bank debit alert email body to extract transaction details.
     
-    HDFC debit alerts typically contain:
-    - Amount debited
-    - Account number (last 4 digits)
-    - Transaction date/time
-    - Beneficiary/merchant name
-    - Available balance
+    Example HDFC format:
+    "Dear Customer, Rs.166.00 has been debited from account 0230 to VPA 
+    paytm-blinkit@ptybl Blinkit on 17-01-26. Your UPI transaction reference..."
     """
     result = {}
     
     # Clean HTML tags if present
-    body = re.sub(r'<[^>]+>', ' ', body)
-    body = re.sub(r'\s+', ' ', body).strip()
+    clean_body = re.sub(r'<[^>]+>', ' ', body)
+    clean_body = re.sub(r'\s+', ' ', clean_body).strip()
     
-    # Pattern for amount - HDFC formats: "Rs.1234.00" or "INR 1,234.00" or "Rs 1234"
+    print(f"Parsing email body: {clean_body[:200]}...")
+    
+    # Pattern for amount - HDFC formats: "Rs.166.00 has been debited"
     amount_patterns = [
-        r'(?:Rs\.?|INR)\s*([\d,]+(?:\.\d{2})?)\s*(?:has been|is|debited)',
-        r'debited\s*(?:by|for|with)?\s*(?:Rs\.?|INR)?\s*([\d,]+(?:\.\d{2})?)',
-        r'(?:Rs\.?|INR)\s*([\d,]+(?:\.\d{2})?)\s*withdrawn',
-        r'amount\s*(?:of)?\s*(?:Rs\.?|INR)?\s*([\d,]+(?:\.\d{2})?)',
+        r'Rs\.?\s*([\d,]+(?:\.\d{2})?)\s*has been debited',
+        r'(?:Rs\.?|INR)\s*([\d,]+(?:\.\d{2})?)\s*(?:has been|is|was)\s*debited',
+        r'debited.*?(?:Rs\.?|INR)\s*([\d,]+(?:\.\d{2})?)',
+        r'(?:Rs\.?|INR)\s*([\d,]+(?:\.\d{2})?)',
     ]
     
     for pattern in amount_patterns:
-        match = re.search(pattern, body, re.IGNORECASE)
+        match = re.search(pattern, clean_body, re.IGNORECASE)
         if match:
             amount = match.group(1).replace(",", "")
             result["Amount"] = amount
+            print(f"Found amount: {amount}")
             break
     
-    # Pattern for receiver/beneficiary
+    # Pattern for receiver/beneficiary - HDFC specific format:
+    # "to VPA paytm-blinkit@ptybl Blinkit on 17-01-26"
+    # We want to extract "Blinkit" (the name after VPA address)
     receiver_patterns = [
-        r'(?:to|at|towards|for)\s+([A-Za-z0-9\s&\-\.]+?)(?:\s+on|\s+at|\s+via|\s+using|\.|\s*$)',
+        # HDFC VPA format: "to VPA <vpa@address> <Name> on <date>"
+        r'to VPA\s+[\w\-\.@]+\s+([A-Za-z][A-Za-z0-9\s&\-\.]+?)\s+on\s+\d',
+        # Fallback: just get VPA address
+        r'to VPA\s+([\w\-\.@]+)',
+        # Generic patterns
+        r'(?:to|at)\s+([A-Za-z][A-Za-z0-9\s&\-\.]{2,}?)\s+(?:on|via|using)\s+\d',
         r'(?:transferred to|paid to|payment to)\s+([A-Za-z0-9\s&\-\.]+)',
-        r'(?:UPI|IMPS|NEFT)\s*[:\-]?\s*([A-Za-z0-9\s&\-\.@]+)',
-        r'VPA\s*[:\-]?\s*([A-Za-z0-9\.\-@]+)',
     ]
     
     for pattern in receiver_patterns:
-        match = re.search(pattern, body, re.IGNORECASE)
+        match = re.search(pattern, clean_body, re.IGNORECASE)
         if match:
             receiver = match.group(1).strip()
             # Clean up receiver name
             receiver = re.sub(r'\s+', ' ', receiver)
-            if len(receiver) > 3:  # Ignore very short matches
+            if len(receiver) >= 2:
                 result["Receiver"] = receiver
+                print(f"Found receiver: {receiver}")
                 break
     
-    # Pattern for date/time
+    # Pattern for date/time - HDFC format: "on 17-01-26" (DD-MM-YY)
     date_patterns = [
+        # DD-MM-YY format (most common in HDFC emails)
+        r'on\s+(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})',
         r'(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})\s*(?:at)?\s*(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[APap][Mm])?)?',
         r'(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{2,4})\s*(?:at)?\s*(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[APap][Mm])?)?',
-        r'on\s+(\d{1,2}[-/][A-Za-z]{3}[-/]\d{2,4})\s*(\d{1,2}:\d{2}(?::\d{2})?)?',
     ]
     
     for pattern in date_patterns:
-        match = re.search(pattern, body, re.IGNORECASE)
+        match = re.search(pattern, clean_body, re.IGNORECASE)
         if match:
             date_str = match.group(1)
-            time_str = match.group(2) if match.group(2) else "00:00:00"
+            # Some patterns don't have time group
+            try:
+                time_str = match.group(2) if len(match.groups()) > 1 and match.group(2) else None
+            except IndexError:
+                time_str = None
+            
+            print(f"Found date string: {date_str}")
             
             # Try to parse various date formats
             date_formats = [
-                "%d-%m-%Y", "%d/%m/%Y", "%d-%m-%y", "%d/%m/%y",
+                "%d-%m-%y", "%d/%m/%y",  # DD-MM-YY first (HDFC format)
+                "%d-%m-%Y", "%d/%m/%Y",
                 "%d %b %Y", "%d %B %Y", "%d-%b-%Y", "%d-%b-%y",
             ]
             
@@ -214,8 +228,8 @@ def parse_hdfc_debit_email(body: str) -> Optional[Dict]:
                 try:
                     parsed_date = datetime.strptime(date_str, fmt)
                     # Add time if available
-                    time_str = time_str.strip()
                     if time_str:
+                        time_str = time_str.strip()
                         time_formats = ["%H:%M:%S", "%H:%M", "%I:%M %p", "%I:%M:%S %p"]
                         for tfmt in time_formats:
                             try:
@@ -230,6 +244,7 @@ def parse_hdfc_debit_email(body: str) -> Optional[Dict]:
                                 continue
                     
                     result["Date"] = parsed_date.strftime("%Y-%m-%d %H:%M:%S")
+                    print(f"Parsed date: {result['Date']}")
                     break
                 except ValueError:
                     continue
@@ -240,31 +255,50 @@ def parse_hdfc_debit_email(body: str) -> Optional[Dict]:
     # If no date found, use current time
     if "Date" not in result:
         result["Date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"Using current time: {result['Date']}")
     
     # Only return if we found an amount (required field)
     if "Amount" in result:
+        print(f"Final parsed result: {result}")
         return result
     
+    print("No amount found in email body")
     return None
 
 
-def classify_email_transaction(body: str, parsed_data: Dict) -> Optional[Dict]:
-    """Classify transaction using Gemini AI."""
+def extract_and_classify_transaction(body: str) -> Optional[Dict]:
+    """
+    Let Gemini extract ALL transaction details AND classify in one go.
+    This handles any HDFC email format without manual parsing.
+    """
     if not api_key:
-        print("No API key found, using parsed data without classification")
-        parsed_data["Classification"] = "Uncategorized"
-        return parsed_data
+        print("No API key found")
+        return None
     
     try:
         client = genai.Client(api_key=api_key)
     except Exception as e:
         print(f"Error initializing Gemini client: {e}")
-        parsed_data["Classification"] = "Uncategorized"
-        return parsed_data
+        return None
     
-    prompt = f"""You are a financial assistant that classifies transactions into various categories.
+    # Clean HTML tags if present
+    clean_body = re.sub(r'<[^>]+>', ' ', body)
+    clean_body = re.sub(r'\s+', ' ', clean_body).strip()
+    
+    print(f"Sending to Gemini for extraction: {clean_body[:200]}...")
+    
+    prompt = f"""You are a financial assistant. Extract transaction details from this HDFC Bank debit alert email and classify it.
 
-===Response Guidelines
+===Email Body
+{clean_body}
+
+===Extraction Instructions
+1. Extract the Amount (just the number, no currency symbol, no commas)
+2. Extract the Receiver/Merchant name (who the money was paid to)
+3. Extract the Date and Time of the transaction
+4. Classify the transaction into a category
+
+===Classification Guidelines
 1. If there is no receiver, classify it as Personal Contact.
 2. If the receiver is Blinkit, zepto, classify it as Quick Commerce.
 3. Only If the receiver is Amazon or Flipkart, classify it as Ecommerce.
@@ -275,23 +309,14 @@ def classify_email_transaction(body: str, parsed_data: Dict) -> Optional[Dict]:
 8. If the receiver is a restaurant, has a food item in its name, or is a food chain, or has the name Zomato classify it as Eating Out.
 9. If the receiver is just someone's name, classify it as Personal Transfer.
 10. If the receiver has Fuel in its name, classify it as Fuel.
-11. If the receiver doesn't fall into any of these categories, intelligently classify it by searching up the name online or classify based on the name intelligently.
-12. Respond in pure JSON only and strictly adhere to these guidelines.
-
-===Email Body (HDFC Bank Debit Alert)
-{body}
-
-===Already Parsed Data
-Amount: {parsed_data.get('Amount', 'Unknown')}
-Receiver: {parsed_data.get('Receiver', 'Unknown')}
-Date: {parsed_data.get('Date', 'Unknown')}
+11. If the receiver doesn't fall into any of these categories, intelligently classify based on the merchant name.
 
 === Response Format (Respond ONLY with this JSON, nothing else)
 {{
-    "Amount": "{parsed_data.get('Amount', '')}",
-    "Classification": "Your classification here",
-    "Receiver": "{parsed_data.get('Receiver', '')}",
-    "Date": "{parsed_data.get('Date', '')}"
+    "Amount": "extracted amount as number string without commas",
+    "Classification": "category from the guidelines above",
+    "Receiver": "merchant or receiver name",
+    "Date": "YYYY-MM-DD HH:MM:SS format"
 }}
 """
 
@@ -308,17 +333,23 @@ Date: {parsed_data.get('Date', 'Unknown')}
             .strip()
         )
         
-        classified = json.loads(clean_content)
-        return classified
+        print(f"Gemini response: {clean_content}")
+        
+        result = json.loads(clean_content)
+        
+        # Validate required fields
+        if not result.get("Amount"):
+            print("Gemini did not extract an amount")
+            return None
+            
+        return result
         
     except json.JSONDecodeError as e:
         print(f"Error parsing Gemini response: {e}")
-        parsed_data["Classification"] = "Uncategorized"
-        return parsed_data
+        return None
     except Exception as e:
-        print(f"Error classifying transaction: {e}")
-        parsed_data["Classification"] = "Uncategorized"
-        return parsed_data
+        print(f"Error extracting/classifying transaction: {e}")
+        return None
 
 
 def save_transaction(transaction: Dict):
@@ -362,22 +393,16 @@ def process_email(msg, message_id: str) -> bool:
     
     print(f"Processing HDFC debit alert email (ID: {message_id})")
     
-    # Parse transaction details
-    parsed = parse_hdfc_debit_email(body)
-    if not parsed:
-        print(f"Could not parse transaction from email body")
+    # Let Gemini extract and classify everything from the email body
+    transaction = extract_and_classify_transaction(body)
+    if not transaction:
+        print(f"Could not extract/classify transaction from email")
         return False
     
-    print(f"Parsed transaction: {parsed}")
-    
-    # Classify transaction
-    classified = classify_email_transaction(body, parsed)
-    if not classified:
-        print(f"Could not classify transaction")
-        return False
+    print(f"Extracted transaction: {transaction}")
     
     # Save transaction
-    if save_transaction(classified):
+    if save_transaction(transaction):
         save_processed_id(message_id)
         return True
     
