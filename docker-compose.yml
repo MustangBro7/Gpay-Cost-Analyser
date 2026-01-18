@@ -32,6 +32,20 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
     restart: always
+
+  email-monitor:
+    build: .
+    image: abhinavmohan12/gpay-email-monitor:latest
+    container_name: gpay-email-monitor
+    command: python email_monitor.py
+    volumes:
+      - .:/app
+      - ./tokens:/app/tokens
+      - ./credentials.json:/app/credentials.json:ro
+      - ./.env:/app/.env:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: always
       
   nginx:
     image: nginx:latest

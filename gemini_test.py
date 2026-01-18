@@ -239,7 +239,8 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
-    "openid"
+    "openid",
+    "https://mail.google.com/"  # Full Gmail access for IMAP
 ]
 CLIENT_SECRETS_FILE = "credentials.json"
 TOKENS_DIR = "tokens"
