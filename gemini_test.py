@@ -287,6 +287,12 @@ class Normalization(BaseModel):
     paidToMe: Optional[str] = None
     payers: Optional[List[Payer]] = None
 
+class AddTransaction(BaseModel):
+    Amount: str
+    Classification: str
+    Receiver: str
+    Date: str  # Expected format: "YYYY-MM-DD HH:MM:SS"
+
 # === OAuth Helpers ===
 def get_flow():
     return Flow.from_client_secrets_file(
@@ -623,3 +629,37 @@ def normalize(normalization: Normalization):
         "data": transactions,
         "updated_transaction": updated_tx
     }
+
+@app.post("/add-transaction")
+def add_transaction(transaction: AddTransaction):
+    """Add a new transaction manually."""
+    try:
+        with open(filename, "r") as f:
+            transactions: List[dict] = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        transactions = []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load transactions: {str(e)}")
+
+    # Check for duplicate (same date and amount)
+    for tx in transactions:
+        if tx["Date"] == transaction.Date and tx["Amount"] == transaction.Amount:
+            raise HTTPException(status_code=400, detail="A transaction with this date and amount already exists.")
+
+    # Create new transaction dict
+    new_transaction = {
+        "Amount": transaction.Amount,
+        "Classification": transaction.Classification,
+        "Receiver": transaction.Receiver,
+        "Date": transaction.Date
+    }
+
+    transactions.append(new_transaction)
+
+    try:
+        with open(filename, "w") as f:
+            json.dump(transactions, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save transaction: {str(e)}")
+
+    return {"status": "created", "transaction": new_transaction}

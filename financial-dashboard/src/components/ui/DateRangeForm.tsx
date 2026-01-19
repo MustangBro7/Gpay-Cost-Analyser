@@ -23,11 +23,13 @@ const getCurrentMonthRange = () => {
   return { from: startOfMonth, to: endOfMonth }
 }
 
-// 👇 Accept a callback prop
+// 👇 Accept a callback prop and optional actions
 export function DateRangeForm({
   onDataFetched,
+  actions,
 }: {
   onDataFetched: (data: Transaction[], range: { from: Date; to: Date }) => void
+  actions?: React.ReactNode
 }){
   const currentMonth = getCurrentMonthRange()
   const [date, setDate] = React.useState<DateRange | undefined>({
@@ -61,7 +63,7 @@ export function DateRangeForm({
   }
 
   return (
-    <div className="flex flex-col items-start space-y-4">
+    <div className="flex flex-wrap items-center gap-3">
       <Popover>
         <PopoverTrigger asChild>
           <Button
@@ -99,6 +101,8 @@ export function DateRangeForm({
           'Submit'
         )}
       </Button>
+
+      {actions}
     </div>
   )
 }

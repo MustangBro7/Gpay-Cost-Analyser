@@ -10,13 +10,17 @@ import { Transaction } from "@/types/Transaction"
 import { GlowingLineChart } from "@/components/ui/glowing-line"
 import { VerticalBarChart }  from "@/components/ui/VerticalBarChart"
 import { ClassificationFilter } from "@/components/ui/ClassificationFilter"
+import { AddTransactionDialog } from "@/components/ui/AddTransactionDialog"
+import { Button } from "@/components/ui/button"
 import { formatLocalDate } from "@/lib/utils"
+import { Plus } from "lucide-react"
 
 export default function Home() {
   const [data, setData] = React.useState<Transaction[]>([])
   const [dateRange, setDateRange] = React.useState<{ from: Date; to: Date } | null>(null)
   const [selectedClassifications, setSelectedClassifications] = React.useState<Set<string>>(new Set())
   const [isInitialLoad, setIsInitialLoad] = React.useState(true)
+  const [isAddDialogOpen, setIsAddDialogOpen] = React.useState(false)
   const website_url = process.env.NEXT_PUBLIC_API_URL
 
   const fetchData = React.useCallback(async (range: { from: Date; to: Date }) => {
@@ -64,7 +68,24 @@ export default function Home() {
 
   return (
     <main className="flex flex-col items-center justify-center p-6 space-y-6 w-full">
-      <DateRangeForm onDataFetched={handleDataFetched} />
+      <DateRangeForm
+        onDataFetched={handleDataFetched}
+        actions={
+          <Button
+            onClick={() => setIsAddDialogOpen(true)}
+            className="gap-2"
+          >
+            <Plus className="h-4 w-4" />
+            Add Transaction
+          </Button>
+        }
+      />
+
+      <AddTransactionDialog
+        open={isAddDialogOpen}
+        onOpenChange={setIsAddDialogOpen}
+        onSuccess={refetch}
+      />
       
       {/* Classification Filter */}
       {data.length > 0 && (
