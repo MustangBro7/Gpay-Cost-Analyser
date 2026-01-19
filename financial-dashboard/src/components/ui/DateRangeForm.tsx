@@ -2,7 +2,7 @@
 'use client'
 
 import * as React from "react"
-import { format } from "date-fns"
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subWeeks, subMonths } from "date-fns"
 import { DateRange } from "react-day-picker"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
@@ -18,9 +18,48 @@ import { Loader2 } from "lucide-react"
 // Helper function to get start and end of current month
 const getCurrentMonthRange = () => {
   const now = new Date()
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-  return { from: startOfMonth, to: endOfMonth }
+  const start = new Date(now.getFullYear(), now.getMonth(), 1)
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  return { from: start, to: end }
+}
+
+// Preset date range helpers
+const getPresets = () => {
+  const now = new Date()
+  return [
+    {
+      label: "Today",
+      range: { from: now, to: now },
+    },
+    {
+      label: "This Week",
+      range: {
+        from: startOfWeek(now, { weekStartsOn: 1 }),
+        to: endOfWeek(now, { weekStartsOn: 1 }),
+      },
+    },
+    {
+      label: "Last Week",
+      range: {
+        from: startOfWeek(subWeeks(now, 1), { weekStartsOn: 1 }),
+        to: endOfWeek(subWeeks(now, 1), { weekStartsOn: 1 }),
+      },
+    },
+    {
+      label: "This Month",
+      range: {
+        from: startOfMonth(now),
+        to: endOfMonth(now),
+      },
+    },
+    {
+      label: "Last Month",
+      range: {
+        from: startOfMonth(subMonths(now, 1)),
+        to: endOfMonth(subMonths(now, 1)),
+      },
+    },
+  ]
 }
 
 // 👇 Accept a callback prop and optional actions
@@ -80,14 +119,32 @@ export function DateRangeForm({
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-auto p-0" align="start">
-          <Calendar
-            initialFocus
-            mode="range"
-            defaultMonth={date?.from}
-            selected={date}
-            onSelect={setDate}
-            numberOfMonths={2}
-          />
+          <div className="flex">
+            {/* Presets sidebar */}
+            <div className="flex flex-col gap-1 border-r p-3 min-w-[120px]">
+              <p className="text-xs font-medium text-muted-foreground mb-2">Quick Select</p>
+              {getPresets().map((preset) => (
+                <Button
+                  key={preset.label}
+                  variant="ghost"
+                  size="sm"
+                  className="justify-start text-sm font-normal"
+                  onClick={() => setDate(preset.range)}
+                >
+                  {preset.label}
+                </Button>
+              ))}
+            </div>
+            {/* Calendar */}
+            <Calendar
+              initialFocus
+              mode="range"
+              defaultMonth={date?.from}
+              selected={date}
+              onSelect={setDate}
+              numberOfMonths={2}
+            />
+          </div>
         </PopoverContent>
       </Popover>
 
