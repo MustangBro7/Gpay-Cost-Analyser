@@ -161,11 +161,15 @@ jobs:
             
             # Pull latest images
             echo "Pulling latest Docker images..."
-            $DOCKER_COMPOSE pull api poller
+            $DOCKER_COMPOSE pull api poller email-monitor
             
             # Restart services with new images
             echo "Restarting services..."
-            $DOCKER_COMPOSE up -d api poller
+            $DOCKER_COMPOSE up -d api poller email-monitor
+            
+            # Restart nginx to refresh upstream connections
+            echo "Restarting nginx..."
+            $DOCKER_COMPOSE restart nginx
             
             # Wait a moment for services to start
             sleep 5
