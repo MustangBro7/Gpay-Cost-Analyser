@@ -266,10 +266,14 @@ def parse_hdfc_debit_email(body: str) -> Optional[Dict]:
     return None
 
 
-def extract_and_classify_transaction(body: str) -> Optional[Dict]:
+def extract_and_classify_transaction(body: str, email_timestamp: Optional[str] = None) -> Optional[Dict]:
     """
     Let Gemini extract ALL transaction details AND classify in one go.
     This handles any HDFC email format without manual parsing.
+    
+    Args:
+        body: The email body text
+        email_timestamp: The timestamp when the email was sent (from email headers)
     """
     if not api_key:
         print("No API key found")
@@ -287,15 +291,21 @@ def extract_and_classify_transaction(body: str) -> Optional[Dict]:
     
     print(f"Sending to Gemini for extraction: {clean_body[:200]}...")
     
+    # Include email timestamp info if available
+    timestamp_info = ""
+    if email_timestamp:
+        timestamp_info = f"\n===Email Sent Timestamp\n{email_timestamp}\n(Use this for the time portion since the email body may only contain the date)"
+    
     prompt = f"""You are a financial assistant. Extract transaction details from this HDFC Bank debit alert email and classify it.
 
 ===Email Body
 {clean_body}
+{timestamp_info}
 
 ===Extraction Instructions
 1. Extract the Amount (just the number, no currency symbol, no commas)
 2. Extract the Receiver/Merchant name (who the money was paid to)
-3. Extract the Date and Time of the transaction
+3. Extract the Date and Time of the transaction (use the email sent timestamp for the time if the email body only has the date)
 4. Classify the transaction into a category
 
 ===Classification Guidelines
@@ -376,6 +386,22 @@ def save_transaction(transaction: Dict):
     return True
 
 
+def get_email_timestamp(msg) -> Optional[str]:
+    """Extract the email's sent timestamp from headers."""
+    from email.utils import parsedate_to_datetime
+    
+    date_header = msg.get("Date")
+    if date_header:
+        try:
+            # Parse the email Date header to a datetime object
+            email_datetime = parsedate_to_datetime(date_header)
+            # Convert to a readable format
+            return email_datetime.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception as e:
+            print(f"Error parsing email Date header: {e}")
+    return None
+
+
 def process_email(msg, message_id: str) -> bool:
     """Process a single email and extract/classify transaction."""
     # Get sender
@@ -393,8 +419,13 @@ def process_email(msg, message_id: str) -> bool:
     
     print(f"Processing HDFC debit alert email (ID: {message_id})")
     
+    # Get the email's sent timestamp from headers
+    email_timestamp = get_email_timestamp(msg)
+    if email_timestamp:
+        print(f"Email sent at: {email_timestamp}")
+    
     # Let Gemini extract and classify everything from the email body
-    transaction = extract_and_classify_transaction(body)
+    transaction = extract_and_classify_transaction(body, email_timestamp)
     if not transaction:
         print(f"Could not extract/classify transaction from email")
         return False
