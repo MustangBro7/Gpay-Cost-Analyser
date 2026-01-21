@@ -50,10 +50,20 @@ def save_tokens(user_id: str, token_dict: dict):
         json.dump(token_dict, f)
 
 
-def get_valid_credentials(user_id: str) -> Optional[Credentials]:
-    """Get valid OAuth credentials, refreshing if necessary."""
+def get_valid_credentials(user_id: str, force_refresh: bool = False) -> Optional[Credentials]:
+    """Get valid OAuth credentials, refreshing if necessary.
+    
+    Args:
+        user_id: The user's email address
+        force_refresh: If True, always refresh the token regardless of expiry
+    """
     token_dict = load_tokens(user_id)
     if not token_dict:
+        return None
+    
+    # Check if we have a refresh token (required for long-term access)
+    if not token_dict.get("refresh_token"):
+        print(f"No refresh token found for {user_id}. User needs to re-authenticate with /login")
         return None
     
     creds = Credentials(
@@ -65,16 +75,23 @@ def get_valid_credentials(user_id: str) -> Optional[Credentials]:
         scopes=token_dict.get("scopes")
     )
     
-    # Refresh if expired
-    if creds.expired and creds.refresh_token:
+    # Always refresh if forced, or if token might be expired
+    # Access tokens typically expire after 1 hour, so we proactively refresh
+    should_refresh = force_refresh or creds.expired or not creds.valid
+    
+    if should_refresh and creds.refresh_token:
         try:
+            print(f"Refreshing access token for {user_id}...")
             creds.refresh(Request())
             # Save refreshed tokens
             token_dict["token"] = creds.token
             save_tokens(user_id, token_dict)
-            print(f"Refreshed tokens for {user_id}")
+            print(f"Successfully refreshed tokens for {user_id}")
         except Exception as e:
             print(f"Failed to refresh tokens for {user_id}: {e}")
+            # If refresh fails, the refresh token might be revoked
+            # User will need to re-authenticate
+            print(f"User {user_id} may need to re-authenticate via /login")
             return None
     
     return creds
@@ -442,14 +459,19 @@ def process_email(msg, message_id: str) -> bool:
 
 def connect_and_idle(user_id: str):
     """Connect to Gmail IMAP and monitor for new emails using IDLE."""
-    creds = get_valid_credentials(user_id)
-    if not creds:
-        print(f"No valid credentials for {user_id}")
-        return
-    
     email_address = user_id  # user_id is the email address
+    auth_failure_count = 0
+    max_auth_failures = 3
     
     while True:
+        # Always get fresh credentials before connecting (force refresh)
+        print(f"Getting fresh credentials for {email_address}...")
+        creds = get_valid_credentials(user_id, force_refresh=True)
+        if not creds:
+            print(f"No valid credentials for {user_id}. Waiting before retry...")
+            time.sleep(60)  # Wait longer if no credentials
+            continue
+        
         try:
             print(f"Connecting to Gmail IMAP for {email_address}...")
             
@@ -458,6 +480,8 @@ def connect_and_idle(user_id: str):
                 auth_string = generate_xoauth2_string(email_address, creds.token)
                 client.oauth2_login(email_address, creds.token)
                 
+                # Reset auth failure count on successful connection
+                auth_failure_count = 0
                 print(f"Successfully connected as {email_address}")
                 
                 # Select INBOX
@@ -529,19 +553,34 @@ def connect_and_idle(user_id: str):
                         return
                         
         except Exception as e:
-            print(f"Connection error: {e}")
-            print("Reconnecting in 30 seconds...")
-            time.sleep(30)
+            error_msg = str(e).lower()
             
-            # Refresh credentials before reconnecting
-            creds = get_valid_credentials(user_id)
-            if not creds:
-                print(f"Failed to get valid credentials for {user_id}")
-                return
+            # Check if it's an authentication failure
+            if "authenticationfailed" in error_msg or "invalid credentials" in error_msg:
+                auth_failure_count += 1
+                print(f"Authentication failed ({auth_failure_count}/{max_auth_failures}): {e}")
+                
+                if auth_failure_count >= max_auth_failures:
+                    print(f"Too many auth failures for {user_id}. Token may be revoked.")
+                    print(f"User will need to re-authenticate via /login")
+                    # Wait longer before retrying
+                    time.sleep(300)  # 5 minutes
+                    auth_failure_count = 0  # Reset and try again
+                else:
+                    # Force refresh and retry quickly
+                    print("Forcing token refresh and retrying in 10 seconds...")
+                    time.sleep(10)
+            else:
+                # Other connection errors (network issues, etc.)
+                print(f"Connection error: {e}")
+                print("Reconnecting in 30 seconds...")
+                time.sleep(30)
 
 
 def main():
     """Main entry point for email monitor."""
+    import threading
+    
     print("Starting Email Monitor Service...")
     
     if not os.path.exists(TOKENS_DIR):
@@ -554,12 +593,27 @@ def main():
         print("No users found. Run /login first.")
         return
     
-    # For simplicity, monitor first user
-    # In production, you might want to use threading/multiprocessing for multiple users
-    user = users[0]
-    print(f"Monitoring emails for user: {user}")
+    print(f"Found {len(users)} user(s) to monitor: {users}")
     
-    connect_and_idle(user)
+    if len(users) == 1:
+        # Single user - run directly
+        print(f"Monitoring emails for user: {users[0]}")
+        connect_and_idle(users[0])
+    else:
+        # Multiple users - use threads
+        threads = []
+        for user in users:
+            print(f"Starting monitor thread for: {user}")
+            thread = threading.Thread(target=connect_and_idle, args=(user,), daemon=True)
+            thread.start()
+            threads.append(thread)
+        
+        # Keep main thread alive
+        try:
+            for thread in threads:
+                thread.join()
+        except KeyboardInterrupt:
+            print("Shutting down all monitors...")
 
 
 if __name__ == "__main__":
