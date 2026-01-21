@@ -57,6 +57,7 @@ export function AddTransactionDialog({
   const [classificationInput, setClassificationInput] = React.useState("")
   const [isClassificationOpen, setIsClassificationOpen] = React.useState(false)
   const [date, setDate] = React.useState<Date | undefined>(new Date())
+  const [isDatePickerOpen, setIsDatePickerOpen] = React.useState(false)
   const [time, setTime] = React.useState(
     format(new Date(), "HH:mm")
   )
@@ -178,15 +179,15 @@ export function AddTransactionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
+      <DialogContent className="max-w-md mx-4 sm:mx-auto p-4 sm:p-6">
+        <DialogHeader className="pb-2">
           <DialogTitle>Add Transaction</DialogTitle>
           <DialogDescription>
             Manually add a new transaction to your records.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="space-y-4 py-2 sm:py-4">
           {/* Amount */}
           <div className="space-y-2">
             <label className="text-sm font-medium">Amount (₹)</label>
@@ -291,10 +292,10 @@ export function AddTransactionDialog({
           </div>
 
           {/* Date & Time */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Date</label>
-              <Popover>
+              <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen} modal={true}>
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
@@ -307,12 +308,19 @@ export function AddTransactionDialog({
                     {date ? format(date, "PP") : "Pick a date"}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
+                <PopoverContent 
+                  className="w-auto p-0" 
+                  align="start"
+                  onOpenAutoFocus={(e) => e.preventDefault()}
+                  onInteractOutside={(e) => e.preventDefault()}
+                >
                   <Calendar
                     mode="single"
                     selected={date}
-                    onSelect={setDate}
-                    initialFocus
+                    onSelect={(newDate) => {
+                      setDate(newDate)
+                      setIsDatePickerOpen(false)
+                    }}
                   />
                 </PopoverContent>
               </Popover>
@@ -329,12 +337,13 @@ export function AddTransactionDialog({
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="gap-2 sm:gap-0 pt-2">
           <Button
             type="button"
             variant="outline"
             onClick={() => onOpenChange(false)}
             disabled={isSubmitting}
+            className="w-full sm:w-auto"
           >
             Cancel
           </Button>
@@ -342,6 +351,7 @@ export function AddTransactionDialog({
             type="button"
             onClick={handleSubmit}
             disabled={isSubmitting}
+            className="w-full sm:w-auto"
           >
             {isSubmitting ? "Adding..." : "Add Transaction"}
           </Button>

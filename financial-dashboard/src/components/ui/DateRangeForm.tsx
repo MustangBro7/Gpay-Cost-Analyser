@@ -76,60 +76,84 @@ export function DateRangeForm({
     to: currentMonth.to,
   })
   const [isLoading, setIsLoading] = React.useState(false)
+  const [isPopoverOpen, setIsPopoverOpen] = React.useState(false)
+  const isFirstRender = React.useRef(true)
 
-  const handleSubmit = async () => {
-    if (!date?.from || !date?.to || isLoading) return
-    
-    setIsLoading(true)
-    try {
-      const website_url = process.env.NEXT_PUBLIC_API_URL
-      const response = await fetch(`${website_url}/daterange`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          startDate: formatLocalDate(date.from),
-          endDate: formatLocalDate(date.to),
-        })
-      })
-    
-      const data = await response.json()
-      onDataFetched(data, { from: date.from, to: date.to })
-    } catch (error) {
-      console.error('Error fetching data:', error)
-    } finally {
-      setIsLoading(false)
+  // Fetch data whenever date range changes (after both from and to are selected)
+  React.useEffect(() => {
+    // Skip the initial render since page.tsx already fetches data on mount
+    if (isFirstRender.current) {
+      isFirstRender.current = false
+      return
     }
+
+    if (!date?.from || !date?.to || isLoading) return
+
+    const fetchData = async () => {
+      setIsLoading(true)
+      try {
+        const website_url = process.env.NEXT_PUBLIC_API_URL
+        const response = await fetch(`${website_url}/daterange`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            startDate: formatLocalDate(date.from),
+            endDate: formatLocalDate(date.to),
+          })
+        })
+      
+        const data = await response.json()
+        onDataFetched(data, { from: date.from, to: date.to })
+      } catch (error) {
+        console.error('Error fetching data:', error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchData()
+  }, [date?.from?.getTime(), date?.to?.getTime()])
+
+  const handlePresetSelect = (range: DateRange) => {
+    setDate(range)
+    setIsPopoverOpen(false)
   }
 
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <Popover>
+      <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
         <PopoverTrigger asChild>
           <Button
             variant="outline"
             className="w-[300px] justify-start text-left font-normal"
             disabled={isLoading}
           >
-            {date?.from
-              ? date.to
+            {isLoading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Loading...
+              </>
+            ) : date?.from ? (
+              date.to
                 ? `${format(date.from, "LLL dd, y")} - ${format(date.to, "LLL dd, y")}`
                 : format(date.from, "LLL dd, y")
-              : <span>Pick a date range</span>
-            }
+            ) : (
+              <span>Pick a date range</span>
+            )}
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-auto p-0" align="start">
-          <div className="flex">
+          <div className="flex flex-col sm:flex-row">
             {/* Presets sidebar */}
-            <div className="flex flex-col gap-1 border-r p-3 min-w-[120px]">
-              <p className="text-xs font-medium text-muted-foreground mb-2">Quick Select</p>
+            <div className="flex flex-row sm:flex-col gap-1 border-b sm:border-b-0 sm:border-r p-3 min-w-[120px] overflow-x-auto">
+              <p className="hidden sm:block text-xs font-medium text-muted-foreground mb-2">Quick Select</p>
               {getPresets().map((preset) => (
                 <Button
                   key={preset.label}
                   variant="ghost"
                   size="sm"
-                  className="justify-start text-sm font-normal"
-                  onClick={() => setDate(preset.range)}
+                  className="justify-start text-sm font-normal whitespace-nowrap"
+                  onClick={() => handlePresetSelect(preset.range)}
                 >
                   {preset.label}
                 </Button>
@@ -147,17 +171,6 @@ export function DateRangeForm({
           </div>
         </PopoverContent>
       </Popover>
-
-      <Button onClick={handleSubmit} disabled={isLoading}>
-        {isLoading ? (
-          <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Loading...
-          </>
-        ) : (
-          'Submit'
-        )}
-      </Button>
 
       {actions}
     </div>
