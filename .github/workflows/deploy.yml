@@ -167,6 +167,14 @@ jobs:
             echo "Restarting services..."
             $DOCKER_COMPOSE up -d api poller
             
+            # Restart email-monitor to pick up code changes (uses volume mount)
+            echo "Restarting email-monitor..."
+            $DOCKER_COMPOSE restart email-monitor
+            
+            # Restart nginx to refresh upstream connections
+            echo "Restarting nginx..."
+            $DOCKER_COMPOSE restart nginx
+            
             # Wait a moment for services to start
             sleep 5
             
