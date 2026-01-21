@@ -87,7 +87,10 @@ export function DateRangeForm({
       return
     }
 
-    if (!date?.from || !date?.to || isLoading) return
+    const fromDate = date?.from
+    const toDate = date?.to
+    
+    if (!fromDate || !toDate || isLoading) return
 
     const fetchData = async () => {
       setIsLoading(true)
@@ -97,13 +100,13 @@ export function DateRangeForm({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            startDate: formatLocalDate(date.from),
-            endDate: formatLocalDate(date.to),
+            startDate: formatLocalDate(fromDate),
+            endDate: formatLocalDate(toDate),
           })
         })
       
         const data = await response.json()
-        onDataFetched(data, { from: date.from, to: date.to })
+        onDataFetched(data, { from: fromDate, to: toDate })
       } catch (error) {
         console.error('Error fetching data:', error)
       } finally {
@@ -120,12 +123,12 @@ export function DateRangeForm({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-3">
+    <div className="flex flex-col sm:flex-row flex-wrap items-center justify-center gap-3 w-full px-4 sm:px-0">
       <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
         <PopoverTrigger asChild>
           <Button
             variant="outline"
-            className="w-[300px] justify-start text-left font-normal"
+            className="w-full sm:w-[300px] justify-center sm:justify-start text-left font-normal"
             disabled={isLoading}
           >
             {isLoading ? (
@@ -142,32 +145,37 @@ export function DateRangeForm({
             )}
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-auto p-0" align="start">
-          <div className="flex flex-col sm:flex-row">
-            {/* Presets sidebar */}
-            <div className="flex flex-row sm:flex-col gap-1 border-b sm:border-b-0 sm:border-r p-3 min-w-[120px] overflow-x-auto">
-              <p className="hidden sm:block text-xs font-medium text-muted-foreground mb-2">Quick Select</p>
+        <PopoverContent 
+          className="w-[calc(100vw-2rem)] max-w-[320px] p-0 mx-4" 
+          align="center"
+          sideOffset={8}
+        >
+          <div className="flex flex-col items-center">
+            {/* Presets - wrap on multiple lines */}
+            <div className="flex flex-wrap justify-center gap-1.5 border-b p-3 w-full">
               {getPresets().map((preset) => (
                 <Button
                   key={preset.label}
                   variant="ghost"
                   size="sm"
-                  className="justify-start text-sm font-normal whitespace-nowrap"
+                  className="text-xs font-medium px-3 h-8"
                   onClick={() => handlePresetSelect(preset.range)}
                 >
                   {preset.label}
                 </Button>
               ))}
             </div>
-            {/* Calendar */}
-            <Calendar
-              initialFocus
-              mode="range"
-              defaultMonth={date?.from}
-              selected={date}
-              onSelect={setDate}
-              numberOfMonths={2}
-            />
+            {/* Calendar - centered */}
+            <div className="flex justify-center p-2">
+              <Calendar
+                initialFocus
+                mode="range"
+                defaultMonth={date?.from}
+                selected={date}
+                onSelect={setDate}
+                numberOfMonths={1}
+              />
+            </div>
           </div>
         </PopoverContent>
       </Popover>

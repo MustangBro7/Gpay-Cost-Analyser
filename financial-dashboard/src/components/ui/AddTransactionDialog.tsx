@@ -179,40 +179,42 @@ export function AddTransactionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md mx-4 sm:mx-auto p-4 sm:p-6">
-        <DialogHeader className="pb-2">
-          <DialogTitle>Add Transaction</DialogTitle>
-          <DialogDescription>
+      <DialogContent className="w-[calc(100%-2rem)] max-w-md mx-auto rounded-xl p-5 sm:p-6">
+        <DialogHeader className="text-center sm:text-left pb-4 border-b border-border/50">
+          <DialogTitle className="text-xl font-semibold">Add Transaction</DialogTitle>
+          <DialogDescription className="text-muted-foreground mt-1">
             Manually add a new transaction to your records.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-2 sm:py-4">
+        <div className="space-y-5 py-5">
           {/* Amount */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Amount (₹)</label>
+          <div className="space-y-2.5">
+            <label className="text-sm font-medium block">Amount (₹)</label>
             <Input
               type="text"
               placeholder="Enter amount"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
+              className="h-12 text-base px-4"
             />
           </div>
 
           {/* Receiver */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Receiver / Merchant</label>
+          <div className="space-y-2.5">
+            <label className="text-sm font-medium block">Receiver / Merchant</label>
             <Input
               type="text"
               placeholder="e.g., Zomato, Amazon, John Doe"
               value={receiver}
               onChange={(e) => setReceiver(e.target.value)}
+              className="h-12 text-base px-4"
             />
           </div>
 
           {/* Classification - Combobox */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Classification</label>
+          <div className="space-y-2.5">
+            <label className="text-sm font-medium block">Classification</label>
             <div className="relative">
               <div className="relative">
                 <Input
@@ -226,28 +228,28 @@ export function AddTransactionDialog({
                     setIsClassificationOpen(true)
                   }}
                   onFocus={() => setIsClassificationOpen(true)}
-                  className="pr-8"
+                  className="h-12 text-base px-4 pr-10"
                 />
                 <button
                   type="button"
                   onClick={() => setIsClassificationOpen(!isClassificationOpen)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1"
                 >
-                  <ChevronsUpDown className="h-4 w-4" />
+                  <ChevronsUpDown className="h-5 w-5" />
                 </button>
               </div>
 
               {isClassificationOpen && (
                 <div
                   ref={dropdownRef}
-                  className="absolute z-50 mt-1 w-full rounded-md border bg-popover p-1 shadow-md max-h-60 overflow-y-auto"
+                  className="absolute z-50 mt-2 w-full rounded-lg border bg-popover p-1.5 shadow-lg max-h-52 overflow-y-auto"
                 >
                   {/* Show custom value option if input doesn't match any existing */}
                   {isCustomValue && classificationInput.trim() && (
                     <button
                       type="button"
                       onClick={() => selectClassification(classificationInput.trim())}
-                      className="relative flex w-full cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
+                      className="relative flex w-full cursor-pointer select-none items-center rounded-md px-3 py-2.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
                     >
                       <span className="mr-2 text-muted-foreground">+</span>
                       Create &quot;{classificationInput.trim()}&quot;
@@ -261,13 +263,13 @@ export function AddTransactionDialog({
                         key={cat}
                         onClick={() => selectClassification(cat)}
                         className={cn(
-                          "relative flex w-full cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
+                          "relative flex w-full cursor-pointer select-none items-center rounded-md px-3 py-2.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
                           classification === cat && "bg-accent"
                         )}
                       >
                         <Check
                           className={cn(
-                            "mr-2 h-4 w-4",
+                            "mr-2.5 h-4 w-4",
                             classification === cat ? "opacity-100" : "opacity-0"
                           )}
                         />
@@ -276,7 +278,7 @@ export function AddTransactionDialog({
                     ))
                   ) : (
                     !isCustomValue && (
-                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                      <div className="px-3 py-2.5 text-sm text-muted-foreground text-center">
                         No categories found
                       </div>
                     )
@@ -285,65 +287,68 @@ export function AddTransactionDialog({
               )}
             </div>
             {classificationInput && !classification && isCustomValue && (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground mt-1.5">
                 Press Enter or click to add a custom category
               </p>
             )}
           </div>
 
-          {/* Date & Time */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Date</label>
-              <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen} modal={true}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className={cn(
-                      "w-full justify-start text-left font-normal",
-                      !date && "text-muted-foreground"
-                    )}
+          {/* Date & Time - Visual separator */}
+          <div className="pt-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2.5">
+                <label className="text-sm font-medium block">Date</label>
+                <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen} modal={true}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "w-full h-12 justify-start text-left font-normal text-base px-4",
+                        !date && "text-muted-foreground"
+                      )}
+                    >
+                      <CalendarIcon className="mr-3 h-5 w-5" />
+                      {date ? format(date, "PP") : "Pick a date"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent 
+                    className="w-auto p-0" 
+                    align="center"
+                    onOpenAutoFocus={(e) => e.preventDefault()}
+                    onInteractOutside={(e) => e.preventDefault()}
                   >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {date ? format(date, "PP") : "Pick a date"}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent 
-                  className="w-auto p-0" 
-                  align="start"
-                  onOpenAutoFocus={(e) => e.preventDefault()}
-                  onInteractOutside={(e) => e.preventDefault()}
-                >
-                  <Calendar
-                    mode="single"
-                    selected={date}
-                    onSelect={(newDate) => {
-                      setDate(newDate)
-                      setIsDatePickerOpen(false)
-                    }}
-                  />
-                </PopoverContent>
-              </Popover>
-            </div>
+                    <Calendar
+                      mode="single"
+                      selected={date}
+                      onSelect={(newDate) => {
+                        setDate(newDate)
+                        setIsDatePickerOpen(false)
+                      }}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Time</label>
-              <Input
-                type="time"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
-              />
+              <div className="space-y-2.5">
+                <label className="text-sm font-medium block">Time</label>
+                <Input
+                  type="time"
+                  value={time}
+                  onChange={(e) => setTime(e.target.value)}
+                  className="h-12 text-base px-4"
+                />
+              </div>
             </div>
           </div>
         </div>
 
-        <DialogFooter className="gap-2 sm:gap-0 pt-2">
+        <DialogFooter className="flex flex-col-reverse sm:flex-row gap-3 pt-4 border-t border-border/50">
           <Button
             type="button"
             variant="outline"
             onClick={() => onOpenChange(false)}
             disabled={isSubmitting}
-            className="w-full sm:w-auto"
+            className="w-full sm:w-auto h-11 text-base"
           >
             Cancel
           </Button>
@@ -351,7 +356,7 @@ export function AddTransactionDialog({
             type="button"
             onClick={handleSubmit}
             disabled={isSubmitting}
-            className="w-full sm:w-auto"
+            className="w-full sm:w-auto h-11 text-base font-medium"
           >
             {isSubmitting ? "Adding..." : "Add Transaction"}
           </Button>
