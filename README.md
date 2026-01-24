@@ -50,8 +50,8 @@ The system consists of several microservices orchestrated via Docker Compose:
     ▼         ▼              ▼             ▼
 ┌────────┐ ┌──────────┐ ┌──────────┐ ┌─────────┐
 │ Email  │ │  Google  │ │ Gemini   │ │  JSON   │
-│Monitor │ │  Drive  │ │   AI     │ │ Storage │
-│Service │ │  Poller │ │          │ │         │
+│Monitor │ │  Drive   │ │   AI     │ │ Storage │
+│Service │ │  Poller  │ │          │ │         │
 └────────┘ └──────────┘ └──────────┘ └─────────┘
 ```
 
@@ -309,11 +309,10 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## 📄 License
 
-[Specify your license here]
-
+MIT
 ## 👤 Author
 
-[Your name/contact information]
+Abhinav Mohan (MustangBro7)
 
 ---
 
