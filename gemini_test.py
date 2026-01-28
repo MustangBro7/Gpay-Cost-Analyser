@@ -224,7 +224,7 @@ from fastapi import FastAPI, HTTPException, Request
 from starlette.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -309,7 +309,11 @@ def save_tokens(user_id: str, token_dict: dict):
 @app.get("/login")
 def login():
     flow = get_flow()
-    auth_url, _ = flow.authorization_url(prompt="consent")
+    auth_url, _ = flow.authorization_url(
+        access_type="offline",  # Request refresh token for long-term access
+        prompt="consent",        # Force consent to always get a new refresh token
+        include_granted_scopes="true"  # Include previously granted scopes
+    )
     return RedirectResponse(auth_url)
 
 @app.get("/oauth2callback")
@@ -329,6 +333,7 @@ def oauth2callback(request: Request):
         "client_id": creds.client_id,
         "client_secret": creds.client_secret,
         "scopes": list(creds.scopes),
+        "auth_timestamp": datetime.now().isoformat(),  # Track when user authenticated
     }
 
     # Get user email
@@ -346,6 +351,89 @@ def list_users():
     if not os.path.exists(TOKENS_DIR):
         return []
     return [f.replace(".json", "") for f in os.listdir(TOKENS_DIR) if f.endswith(".json")]
+
+
+# Token validity duration (Google testing apps expire after 7 days)
+TOKEN_VALIDITY_HOURS = 168  # 7 days
+REAUTH_WARNING_HOURS = 12   # Show warning when less than 12 hours remain
+
+
+@app.get("/token-status/{user_id}")
+def get_token_status(user_id: str):
+    """
+    Get the token status for a user, including time until expiry.
+    Used by the frontend to show re-authentication warnings.
+    """
+    token_path = os.path.join(TOKENS_DIR, f"{user_id}.json")
+    
+    if not os.path.exists(token_path):
+        return {
+            "user_id": user_id,
+            "authenticated": False,
+            "auth_timestamp": None,
+            "expires_at": None,
+            "hours_remaining": 0,
+            "needs_reauth": True,
+            "message": "User not authenticated"
+        }
+    
+    try:
+        with open(token_path, "r") as f:
+            token_dict = json.load(f)
+        
+        auth_timestamp_str = token_dict.get("auth_timestamp")
+        
+        if not auth_timestamp_str:
+            # Legacy token without timestamp - assume it needs re-auth
+            return {
+                "user_id": user_id,
+                "authenticated": True,
+                "auth_timestamp": None,
+                "expires_at": None,
+                "hours_remaining": 0,
+                "needs_reauth": True,
+                "message": "Token missing timestamp, please re-authenticate"
+            }
+        
+        auth_timestamp = datetime.fromisoformat(auth_timestamp_str)
+        expires_at = auth_timestamp + timedelta(hours=TOKEN_VALIDITY_HOURS)
+        now = datetime.now()
+        
+        time_remaining = expires_at - now
+        hours_remaining = max(0, time_remaining.total_seconds() / 3600)
+        
+        needs_reauth = hours_remaining < REAUTH_WARNING_HOURS
+        
+        return {
+            "user_id": user_id,
+            "authenticated": True,
+            "auth_timestamp": auth_timestamp_str,
+            "expires_at": expires_at.isoformat(),
+            "hours_remaining": round(hours_remaining, 2),
+            "needs_reauth": needs_reauth,
+            "message": "Token expiring soon, please re-authenticate" if needs_reauth else "Token valid"
+        }
+        
+    except Exception as e:
+        return {
+            "user_id": user_id,
+            "authenticated": False,
+            "auth_timestamp": None,
+            "expires_at": None,
+            "hours_remaining": 0,
+            "needs_reauth": True,
+            "message": f"Error reading token: {str(e)}"
+        }
+
+
+@app.get("/token-status")
+def get_all_token_status():
+    """Get token status for all authenticated users."""
+    users = list_users()
+    if not users:
+        return []
+    return [get_token_status(user) for user in users]
+
 
 # === Transaction classification ===
 

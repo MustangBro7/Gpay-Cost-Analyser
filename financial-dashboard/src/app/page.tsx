@@ -11,6 +11,7 @@ import { GlowingLineChart } from "@/components/ui/glowing-line"
 import { VerticalBarChart }  from "@/components/ui/VerticalBarChart"
 import { ClassificationFilter } from "@/components/ui/ClassificationFilter"
 import { AddTransactionDialog } from "@/components/ui/AddTransactionDialog"
+import { ReauthWarning } from "@/components/ui/ReauthWarning"
 import { Button } from "@/components/ui/button"
 import { formatLocalDate } from "@/lib/utils"
 import { Plus } from "lucide-react"
@@ -67,51 +68,56 @@ export default function Home() {
   }, [data, selectedClassifications])
 
   return (
-    <main className="flex flex-col items-center justify-center px-4 py-6 sm:p-6 space-y-5 sm:space-y-6 w-full max-w-7xl mx-auto">
-      {/* Header section with date picker and add button */}
-      <div className="w-full">
-        <DateRangeForm
-          onDataFetched={handleDataFetched}
-          actions={
-            <Button
-              onClick={() => setIsAddDialogOpen(true)}
-              className="gap-2 w-full sm:w-auto h-11"
-            >
-              <Plus className="h-4 w-4" />
-              Add Transaction
-            </Button>
-          }
-        />
-      </div>
-
-      <AddTransactionDialog
-        open={isAddDialogOpen}
-        onOpenChange={setIsAddDialogOpen}
-        onSuccess={refetch}
-      />
+    <>
+      {/* Re-authentication Warning - shows when token is expiring */}
+      <ReauthWarning />
       
-      {/* Classification Filter */}
-      {data.length > 0 && (
+      <main className="flex flex-col items-center justify-center px-4 py-6 sm:p-6 space-y-5 sm:space-y-6 w-full max-w-7xl mx-auto">
+        {/* Header section with date picker and add button */}
         <div className="w-full">
-          <ClassificationFilter
-            data={data}
-            selectedClassifications={selectedClassifications}
-            onSelectionChange={setSelectedClassifications}
+          <DateRangeForm
+            onDataFetched={handleDataFetched}
+            actions={
+              <Button
+                onClick={() => setIsAddDialogOpen(true)}
+                className="gap-2 w-full sm:w-auto h-11"
+              >
+                <Plus className="h-4 w-4" />
+                Add Transaction
+              </Button>
+            }
           />
         </div>
-      )}
 
-      {/* Responsive dashboard layout */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6 w-full">
-        <PieChartComponent data={filteredData} refetch={refetch} />
+        <AddTransactionDialog
+          open={isAddDialogOpen}
+          onOpenChange={setIsAddDialogOpen}
+          onSuccess={refetch}
+        />
         
-        <div className="flex flex-col space-y-5 sm:space-y-6">
-          <VerticalBarChart data={filteredData} refetch={refetch}/>
-          <GlowingLineChart data={filteredData}/>
-        </div>
-      </div>
+        {/* Classification Filter */}
+        {data.length > 0 && (
+          <div className="w-full">
+            <ClassificationFilter
+              data={data}
+              selectedClassifications={selectedClassifications}
+              onSelectionChange={setSelectedClassifications}
+            />
+          </div>
+        )}
 
-      <Toaster />
-    </main>
+        {/* Responsive dashboard layout */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6 w-full">
+          <PieChartComponent data={filteredData} refetch={refetch} />
+          
+          <div className="flex flex-col space-y-5 sm:space-y-6">
+            <VerticalBarChart data={filteredData} refetch={refetch}/>
+            <GlowingLineChart data={filteredData}/>
+          </div>
+        </div>
+
+        <Toaster />
+      </main>
+    </>
   )
 }
