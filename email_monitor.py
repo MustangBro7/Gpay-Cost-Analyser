@@ -23,7 +23,7 @@ load_dotenv()
 
 TOKENS_DIR = "tokens"
 TRANSACTIONS_FILE = "new_transactions.json"
-HDFC_SENDER = "alerts@hdfcbank.net"
+HDFC_SENDERS = ["alerts@hdfcbank.net", "alerts@hdfcbank.bank.in"]
 PROCESSED_IDS_FILE = "processed_email_ids.json"
 
 # Gmail IMAP settings
@@ -423,7 +423,8 @@ def process_email(msg, message_id: str) -> bool:
     """Process a single email and extract/classify transaction."""
     # Get sender
     from_header = msg.get("From", "")
-    if HDFC_SENDER.lower() not in from_header.lower():
+    # Check if sender matches any of the tracked HDFC sender addresses
+    if not any(sender.lower() in from_header.lower() for sender in HDFC_SENDERS):
         return False
     
     # Get body
@@ -431,7 +432,7 @@ def process_email(msg, message_id: str) -> bool:
     
     # Check for "debited" keyword
     if "debited" not in body.lower():
-        print(f"Email from {HDFC_SENDER} but no 'debited' keyword found")
+        print(f"Email from HDFC sender but no 'debited' keyword found")
         return False
     
     print(f"Processing HDFC debit alert email (ID: {message_id})")
@@ -511,11 +512,17 @@ def connect_and_idle(user_id: str):
                             print(f"IDLE responses: {responses}")
                             
                             # Check for new HDFC emails with UID >= baseline (arrived after we started)
-                            messages = client.search([
-                                "UNSEEN",
-                                "FROM", HDFC_SENDER,
-                                f"UID", f"{baseline_uid}:*"
-                            ])
+                            # Search for each sender separately and combine results
+                            all_messages = set()
+                            for sender in HDFC_SENDERS:
+                                sender_messages = client.search([
+                                    "UNSEEN",
+                                    "FROM", sender,
+                                    f"UID", f"{baseline_uid}:*"
+                                ])
+                                all_messages.update(sender_messages)
+                            
+                            messages = list(all_messages)
                             
                             if messages:
                                 print(f"Found {len(messages)} new HDFC emails (UID >= {baseline_uid})")
