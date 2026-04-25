@@ -1,238 +1,22 @@
-# from google import genai
-# from openai import OpenAI
-# from PIL import Image
-# import os
-# from dotenv import load_dotenv
-# import json 
-# from fastapi import FastAPI, HTTPException, Request
-# from fastapi.responses import RedirectResponse
-# from fastapi.middleware.cors import CORSMiddleware
-# from typing import List
-# from pydantic import BaseModel
-# from datetime import datetime, date
-# import io
-# import shutil
-# from getTransactions import getTransactions
-# from getTransactions import getTransactionsInBatches, extract_completed_transactions
-# from google_auth_oauthlib.flow import Flow
-# from GoogleDrivePoll import get_flow, exchange_code_for_tokens
-# filename = "new_transactions.json"
-# activity_filename = "My Activity.html"
-# # filename = "transactions_updated.json"
-# # Load variables from .env into environment
-# load_dotenv()
-# latest_ressult = None
-# api_key = os.getenv("OPENAI_API_KEY")
+import json
+import os
+from datetime import date, datetime, timedelta
+from typing import Any, Dict, List, Optional
 
-# class DateRange(BaseModel):
-#     startDate: date
-#     endDate: date
-
-# class Transaction(BaseModel):
-#     Classification: str
-#     Amount: str
-#     Receiver: str
-#     Date: str
-
-# class ReClassification(BaseModel):
-#     original: Transaction
-#     newClassification: str
-
-# app = FastAPI()
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=['*'],
-#     allow_methods=["*"],  # Allows GET, POST, OPTIONS, etc.
-#     allow_headers=["*"],  # Allows all headers
-# )
-
-
-# def classify_transactions_gemini(api_key, activity_filename, json_file="new_transactions.json"):
-#     try:
-#         client = genai.Client(api_key=api_key)
-#     except Exception as e:
-#         print(f"Error initializing genai client: {e}")
-#         return None
-
-#     # Step 1: Load existing transactions if file exists
-#     try:
-#         with open(json_file, "r", encoding="utf-8") as f:
-#             existing = json.load(f)
-#     except (FileNotFoundError, json.JSONDecodeError):
-#         existing = []
-
-#     all_classified = []
-
-#     # Step 2: Process new batches
-#     for batch in extract_completed_transactions(activity_filename):
-#         print("Sending batch:")
-
-#         prompt = f"""You are a financial assistant that classifies transactions into various categories.
-
-#         ===Response Guidelines
-#         1. If there is no receiver, classify it as Personal Contact.
-#         2. If the receiver is Blinkit, zepto, classify it as Quick Commerce.
-#         3. Only If the receiver is Amazon or Flipkart, classify it as Ecommerce.
-#         4. If the receiver is Spotify, Netflix, Hotstar, or Google Play, classify it as Subscriptions.
-#         5. If the receiver has BMTC BUS or Bangalore Metro Rail Corporation Ltd, classify it as Public Transport.
-#         6. If the receiver is Hungerbox, classify it as Office Lunch.
-#         7. If the receiver has 'super market', 'supermarket', 'store', or 'mart' in its name, classify it strictly as Grocery.
-#         8. If the receiver is a restaurant, has a food item in its name, or is a food chain, or has the name Zomato classify it as Eating Out.
-#         9. If the receiver is just someone's name, classify it as Personal Transfer.
-#         10. If the receiver has Fuel in its name, classify it as Fuel.
-#         11. If the receiver doesn't fall into any of these categories, search up the name online and classify.
-#         12. Respond in pure JSON only and strictly adhere to these guidelines.
-
-#         ===Transactions
-#         {batch}
-
-#         === Response Format
-#         {{
-#             "Amount": "Amount associated with the transaction, do not include the currency symbol",
-#             "Classification": "Whatever you classified it as",
-#             "Receiver": "Receiver's name",
-#             "Date": "Date and time of transaction in the format YYYY-MM-DD HH:MM:SS"
-#         }}
-#         """
-
-#         try:
-#             response = client.models.generate_content(
-#                 model="gemini-2.5-flash-lite-preview-06-17",
-#                 contents=prompt
-#             )
-#         except Exception as e:
-#             print(f"Error generating content: {e}")
-#             return None
-
-#         try:
-#             clean_content = (
-#                 response.text.strip()
-#                 .removeprefix("```json")
-#                 .removesuffix("```")
-#                 .strip()
-#             )
-#         except Exception as e:
-#             print(f"Error cleaning response: {e}")
-#             return None
-
-#         try:
-#             json_data = json.loads(clean_content)
-#             if isinstance(json_data, dict):
-#                 all_classified.append(json_data)
-#             elif isinstance(json_data, list):
-#                 all_classified.extend(json_data)
-#         except json.JSONDecodeError as e:
-#             print(f"Error: The content is not valid JSON. {e}")
-#             print("Content attempted to write:")
-#             print(clean_content)
-#         except Exception as e:
-#             print(f"An unexpected error occurred: {e}")
-#             return clean_content
-
-#     # Step 3: Append new transactions to existing and save
-#     updated = existing + all_classified
-#     with open(json_file, "w", encoding="utf-8") as f:
-#         json.dump(updated, f, indent=2, ensure_ascii=False)
-
-#     print(f"Appended {len(all_classified)} new transactions to '{json_file}'")
-#     return all_classified
-
-# def load_transactions_between(start_date: date, end_date: date):
-#     with open(filename, "r") as f:
-#         data = json.load(f)
-
-#     filtered = []
-#     for item in data:
-#         tx_date = datetime.strptime(item["Date"], "%Y-%m-%d %H:%M:%S").date()
-#         if start_date <= tx_date <= end_date:
-#             filtered.append(item)
-
-#     return filtered
-
-
-# # API Endpoint
-# @app.post("/daterange")
-# def recieve_date_range(date_range : DateRange):
-#     # return chatbot.classify_transactions(startDate, endDate)
-#     print(date_range.startDate)
-#     print(date_range.endDate)
-#     results = load_transactions_between(date_range.startDate, date_range.endDate)
-#     print(results)
-#     return results
-
-
-# @app.post("/classify")
-# def classify_transactions():
-#     classify_transactions_gemini(api_key, activity_filename)
-
-# @app.post("/reclassify")
-# def reclassify(Reclassification : ReClassification):
-#     print(Reclassification.original)
-#     print(Reclassification.newClassification)
-
-#     # Load data
-#     try:
-#         with open(filename, "r") as f:
-#             transactions: List[dict] = json.load(f)
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Failed to load transactions: {str(e)}")
-
-#     # Find by Date
-#     match_found = False
-#     for tx in transactions:
-#         if tx["Date"] == Reclassification.original.Date:
-#             tx["Classification"] = Reclassification.newClassification
-#             match_found = True
-#             break
-
-#     if not match_found:
-#         raise HTTPException(status_code=404, detail="Transaction not found.")
-
-#     # Save updated data
-#     try:
-#         with open(filename, "w") as f:
-#             json.dump(transactions, f, ensure_ascii=False, indent=2)
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Failed to save updated transactions: {str(e)}")
-
-#     return {"status": "updated", "data": transactions}
-
-
-# @app.get("/login")
-# def login():
-#     flow = get_flow()
-#     auth_url, _ = flow.authorization_url(prompt="consent")
-#     return RedirectResponse(auth_url)
-
-# @app.get("/oauth2callback")
-# def oauth2callback(request: Request):
-#     code = request.query_params.get("code")
-#     if not code:
-#         return {"error": "No code provided"}
-    
-#     token_dict = exchange_code_for_tokens(code)
-
-#     # TODO: Save token_dict in DB keyed by user_id/email
-#     # For now, just save to file
-#     with open("user_token.json", "w") as f:
-#         json.dump(token_dict, f)
-
-#     return {"message": "Login successful! Tokens saved."}
-
-import os, json
-from fastapi import FastAPI, HTTPException, Request
-from starlette.responses import RedirectResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from datetime import datetime, date, timedelta
-from google_auth_oauthlib.flow import Flow
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
+import jwt
 from dotenv import load_dotenv
-from typing import List, Dict
-from getTransactions import extract_completed_transactions
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from google import genai
-from typing import Optional
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import Flow
+from googleapiclient.discovery import build
+from jwt import PyJWKClient
+from pydantic import BaseModel
+from starlette.responses import RedirectResponse
+
+from getTransactions import extract_completed_transactions
+from storage_layer import TransactionBlobStore, build_user_store
 
 # === Config ===
 SCOPES = [
@@ -240,18 +24,23 @@ SCOPES = [
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
     "openid",
-    "https://mail.google.com/"  # Full Gmail access for IMAP
+    "https://mail.google.com/",
 ]
 CLIENT_SECRETS_FILE = "credentials.json"
-TOKENS_DIR = "tokens"
-filename = "new_transactions.json"
 activity_filename = "My Activity.html"
+TOKEN_VALIDITY_HOURS = 168
+REAUTH_WARNING_HOURS = 12
 
-# === Load env ===
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
-url = os.getenv("WEBSITE_URL")  # e.g., "http://localhost:8000"
-# === FastAPI setup ===
+api_base_url = os.getenv("WEBSITE_URL", "http://localhost:8000")
+worker_shared_secret = os.getenv("WORKER_SHARED_SECRET")
+clerk_issuer = os.getenv("CLERK_ISSUER")
+clerk_jwks_url = os.getenv("CLERK_JWKS_URL")
+
+user_store = build_user_store()
+blob_store = TransactionBlobStore()
+
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -260,10 +49,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# === Models ===
+
 class DateRange(BaseModel):
     startDate: date
     endDate: date
+
 
 class Transaction(BaseModel):
     Classification: str
@@ -272,57 +62,145 @@ class Transaction(BaseModel):
     Date: str
     PaidToMe: Optional[str] = None
     Payers: Optional[List[Dict[str, str]]] = None
-    OriginalAmount: Optional[str] = None  # Store original amount before normalization
+    OriginalAmount: Optional[str] = None
+
 
 class ReClassification(BaseModel):
     original: Transaction
     newClassification: str
 
+
 class Payer(BaseModel):
     name: str
     amount: str
+
 
 class Normalization(BaseModel):
     original: Transaction
     paidToMe: Optional[str] = None
     payers: Optional[List[Payer]] = None
 
+
 class AddTransaction(BaseModel):
     Amount: str
     Classification: str
     Receiver: str
-    Date: str  # Expected format: "YYYY-MM-DD HH:MM:SS"
+    Date: str
 
-# === OAuth Helpers ===
-def get_flow():
-    return Flow.from_client_secrets_file(
+
+class AppendTransactionRequest(BaseModel):
+    user_email: str
+    transaction: Dict[str, Any]
+
+
+def _build_clerk_jwks_client() -> PyJWKClient:
+    jwks_url = clerk_jwks_url
+    if not jwks_url:
+        if not clerk_issuer:
+            raise HTTPException(status_code=500, detail="Clerk issuer/JWKS configuration missing.")
+        jwks_url = f"{clerk_issuer.rstrip('/')}/.well-known/jwks.json"
+    return PyJWKClient(jwks_url)
+
+
+def verify_clerk_token(token: str) -> Dict[str, Any]:
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing bearer token.")
+    try:
+        jwks_client = _build_clerk_jwks_client()
+        signing_key = jwks_client.get_signing_key_from_jwt(token).key
+        options = {"verify_aud": False}
+        kwargs: Dict[str, Any] = {"algorithms": ["RS256"], "options": options}
+        if clerk_issuer:
+            kwargs["issuer"] = clerk_issuer
+        payload = jwt.decode(token, signing_key, **kwargs)
+        return payload
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail=f"Invalid Clerk token: {exc}")
+
+
+def get_current_user(authorization: Optional[str] = Header(default=None)) -> Dict[str, Any]:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Authorization header with Bearer token required.")
+    token = authorization.split(" ", 1)[1]
+    payload = verify_clerk_token(token)
+    clerk_user_id = payload.get("sub")
+    if not clerk_user_id:
+        raise HTTPException(status_code=401, detail="Clerk token missing subject.")
+    user = user_store.get_user_by_clerk_id(clerk_user_id)
+    if not user:
+        emails = payload.get("email")
+        if isinstance(emails, str):
+            email = emails
+        elif isinstance(payload.get("email_addresses"), list) and payload["email_addresses"]:
+            email = payload["email_addresses"][0]
+        else:
+            email = f"{clerk_user_id}@placeholder.local"
+        user = user_store.upsert_user(clerk_user_id=clerk_user_id, email=email)
+    return user
+
+
+def get_optional_current_user(authorization: Optional[str] = Header(default=None)) -> Optional[Dict[str, Any]]:
+    if not authorization:
+        return None
+    return get_current_user(authorization)
+
+
+def ensure_worker(x_worker_secret: Optional[str] = Header(default=None)) -> None:
+    if not worker_shared_secret:
+        raise HTTPException(status_code=500, detail="WORKER_SHARED_SECRET is not configured.")
+    if x_worker_secret != worker_shared_secret:
+        raise HTTPException(status_code=403, detail="Invalid worker secret.")
+
+
+def get_flow(state: Optional[str] = None) -> Flow:
+    flow = Flow.from_client_secrets_file(
         CLIENT_SECRETS_FILE,
         scopes=SCOPES,
-        redirect_uri= url+"/oauth2callback"
+        redirect_uri=f"{api_base_url}/oauth2callback",
     )
+    if state:
+        flow.oauth2session.state = state
+    return flow
 
-def save_tokens(user_id: str, token_dict: dict):
-    os.makedirs(TOKENS_DIR, exist_ok=True)
-    with open(os.path.join(TOKENS_DIR, f"{user_id}.json"), "w") as f:
-        json.dump(token_dict, f)
+
+def get_user_transactions(user: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return blob_store.get_transactions(user["transactions_s3_key"])
+
+
+def save_user_transactions(user: Dict[str, Any], transactions: List[Dict[str, Any]]) -> None:
+    blob_store.put_transactions(user["transactions_s3_key"], transactions)
+
+
+@app.get("/health")
+def health() -> Dict[str, str]:
+    return {"status": "ok"}
+
 
 @app.get("/login")
-def login():
+def login(
+    clerk_user_id: Optional[str] = Query(default=None),
+    email: Optional[str] = Query(default=None),
+):
+    state_payload = {"clerk_user_id": clerk_user_id, "email": email}
+    state = json.dumps(state_payload)
     flow = get_flow()
     auth_url, _ = flow.authorization_url(
-        access_type="offline",  # Request refresh token for long-term access
-        prompt="consent",        # Force consent to always get a new refresh token
-        include_granted_scopes="true"  # Include previously granted scopes
+        access_type="offline",
+        prompt="consent",
+        include_granted_scopes="true",
+        state=state,
     )
     return RedirectResponse(auth_url)
+
 
 @app.get("/oauth2callback")
 def oauth2callback(request: Request):
     code = request.query_params.get("code")
+    raw_state = request.query_params.get("state")
     if not code:
-        return {"error": "No code provided"}
+        raise HTTPException(status_code=400, detail="No code provided")
 
-    flow = get_flow()
+    flow = get_flow(state=raw_state)
     flow.fetch_token(code=code)
     creds = flow.credentials
 
@@ -333,421 +211,285 @@ def oauth2callback(request: Request):
         "client_id": creds.client_id,
         "client_secret": creds.client_secret,
         "scopes": list(creds.scopes),
-        "auth_timestamp": datetime.now().isoformat(),  # Track when user authenticated
+        "auth_timestamp": datetime.now().isoformat(),
     }
 
-    # Get user email
     oauth2_service = build("oauth2", "v2", credentials=creds)
     user_info = oauth2_service.userinfo().get().execute()
-    user_id = user_info["email"]
+    google_email = user_info["email"]
 
-    save_tokens(user_id, token_dict)
+    state_payload: Dict[str, Any] = {}
+    if raw_state:
+        try:
+            state_payload = json.loads(raw_state)
+        except json.JSONDecodeError:
+            state_payload = {}
 
-    return {"message": f"Login successful for {user_id}", "user_id": user_id}
+    clerk_user_id = state_payload.get("clerk_user_id") or google_email
+    linked_email = state_payload.get("email") or google_email
+    user_store.save_google_tokens(clerk_user_id=clerk_user_id, email=linked_email, token_dict=token_dict)
 
-@app.get("/users")
-def list_users():
-    """List all users who have logged in (based on token files)."""
-    if not os.path.exists(TOKENS_DIR):
-        return []
-    return [f.replace(".json", "") for f in os.listdir(TOKENS_DIR) if f.endswith(".json")]
-
-
-# Token validity duration (Google testing apps expire after 7 days)
-TOKEN_VALIDITY_HOURS = 168  # 7 days
-REAUTH_WARNING_HOURS = 12   # Show warning when less than 12 hours remain
-
-
-@app.get("/token-status/{user_id}")
-def get_token_status(user_id: str):
-    """
-    Get the token status for a user, including time until expiry.
-    Used by the frontend to show re-authentication warnings.
-    """
-    token_path = os.path.join(TOKENS_DIR, f"{user_id}.json")
-    
-    if not os.path.exists(token_path):
-        return {
-            "user_id": user_id,
-            "authenticated": False,
-            "auth_timestamp": None,
-            "expires_at": None,
-            "hours_remaining": 0,
-            "needs_reauth": True,
-            "message": "User not authenticated"
-        }
-    
-    try:
-        with open(token_path, "r") as f:
-            token_dict = json.load(f)
-        
-        auth_timestamp_str = token_dict.get("auth_timestamp")
-        
-        if not auth_timestamp_str:
-            # Legacy token without timestamp - assume it needs re-auth
-            return {
-                "user_id": user_id,
-                "authenticated": True,
-                "auth_timestamp": None,
-                "expires_at": None,
-                "hours_remaining": 0,
-                "needs_reauth": True,
-                "message": "Token missing timestamp, please re-authenticate"
-            }
-        
-        auth_timestamp = datetime.fromisoformat(auth_timestamp_str)
-        expires_at = auth_timestamp + timedelta(hours=TOKEN_VALIDITY_HOURS)
-        now = datetime.now()
-        
-        time_remaining = expires_at - now
-        hours_remaining = max(0, time_remaining.total_seconds() / 3600)
-        
-        needs_reauth = hours_remaining < REAUTH_WARNING_HOURS
-        
-        return {
-            "user_id": user_id,
-            "authenticated": True,
-            "auth_timestamp": auth_timestamp_str,
-            "expires_at": expires_at.isoformat(),
-            "hours_remaining": round(hours_remaining, 2),
-            "needs_reauth": needs_reauth,
-            "message": "Token expiring soon, please re-authenticate" if needs_reauth else "Token valid"
-        }
-        
-    except Exception as e:
-        return {
-            "user_id": user_id,
-            "authenticated": False,
-            "auth_timestamp": None,
-            "expires_at": None,
-            "hours_remaining": 0,
-            "needs_reauth": True,
-            "message": f"Error reading token: {str(e)}"
-        }
+    return {"message": f"Google connected for {linked_email}", "google_email": google_email}
 
 
 @app.get("/token-status")
-def get_all_token_status():
-    """Get token status for all authenticated users."""
-    users = list_users()
-    if not users:
-        return []
-    return [get_token_status(user) for user in users]
+def token_status(current_user: Dict[str, Any] = Depends(get_current_user)):
+    token_dict = user_store.get_google_tokens_by_clerk_id(current_user["clerk_user_id"])
+    if not token_dict:
+        return {
+            "user_id": current_user["clerk_user_id"],
+            "authenticated": False,
+            "auth_timestamp": None,
+            "expires_at": None,
+            "hours_remaining": 0,
+            "needs_reauth": True,
+            "message": "Google not connected",
+        }
+
+    auth_timestamp = token_dict.get("auth_timestamp")
+    if not auth_timestamp:
+        return {
+            "user_id": current_user["clerk_user_id"],
+            "authenticated": True,
+            "auth_timestamp": None,
+            "expires_at": None,
+            "hours_remaining": 0,
+            "needs_reauth": True,
+            "message": "Token timestamp missing",
+        }
+
+    auth_dt = datetime.fromisoformat(auth_timestamp)
+    expires_at = auth_dt + timedelta(hours=TOKEN_VALIDITY_HOURS)
+    hours_remaining = max(0.0, (expires_at - datetime.now()).total_seconds() / 3600)
+    needs_reauth = hours_remaining < REAUTH_WARNING_HOURS
+    return {
+        "user_id": current_user["clerk_user_id"],
+        "authenticated": True,
+        "auth_timestamp": auth_timestamp,
+        "expires_at": expires_at.isoformat(),
+        "hours_remaining": round(hours_remaining, 2),
+        "needs_reauth": needs_reauth,
+        "message": "Token expiring soon" if needs_reauth else "Token valid",
+    }
 
 
-# === Transaction classification ===
+def classify_transactions_gemini(
+    existing_transactions: List[Dict[str, Any]],
+    source_activity_filename: str,
+) -> List[Dict[str, Any]]:
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured.")
+    client = genai.Client(api_key=api_key)
+    all_classified: List[Dict[str, Any]] = []
 
-def classify_transactions_gemini(api_key, activity_filename, json_file="new_transactions.json"):
-    try:
-        client = genai.Client(api_key=api_key)
-    except Exception as e:
-        print(f"Error initializing genai client: {e}")
-        return None
+    for batch in extract_completed_transactions(
+        source_activity_filename,
+        existing_transactions=existing_transactions,
+    ):
+        prompt = f"""You are a financial assistant that classifies transactions into categories.
+Return strict JSON only.
 
-    # Step 1: Load existing transactions if file exists
-    try:
-        with open(json_file, "r", encoding="utf-8") as f:
-            existing = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        existing = []
+===Transactions
+{batch}
 
-    all_classified = []
-
-    # Step 2: Process new batches
-    for batch in extract_completed_transactions(activity_filename):
-        print("Sending batch:")
-
-        prompt = f"""You are a financial assistant that classifies transactions into various categories.
-
-        ===Response Guidelines
-        1. If there is no receiver, classify it as Personal Contact.
-        2. If the receiver is Blinkit, zepto, classify it as Quick Commerce.
-        3. Only If the receiver is Amazon or Flipkart, classify it as Ecommerce.
-        4. If the receiver is Spotify, Netflix, Hotstar, or Google Play, classify it as Subscriptions.
-        5. If the receiver has BMTC BUS or Bangalore Metro Rail Corporation Ltd, classify it as Public Transport.
-        6. If the receiver is Hungerbox, classify it as Office Lunch.
-        7. If the receiver has 'super market', 'supermarket', 'store', or 'mart' in its name, classify it strictly as Grocery.
-        8. If the receiver is a restaurant, has a food item in its name, or is a food chain, or has the name Zomato classify it as Eating Out.
-        9. If the receiver is just someone's name, classify it as Personal Transfer.
-        10. If the receiver has Fuel in its name, classify it as Fuel.
-        11. If the receiver doesn't fall into any of these categories, intelligently classify it by searching up the name online or classify based on the name intelligently.
-        12. Respond in pure JSON only and strictly adhere to these guidelines.
-
-        ===Transactions
-        {batch}
-
-        === Response Format
-        {{
-            "Amount": "Amount associated with the transaction, do not include the currency symbol",
-            "Classification": "Whatever you classified it as",
-            "Receiver": "Receiver's name",
-            "Date": "Date and time of transaction in the format YYYY-MM-DD HH:MM:SS"
-        }}
-        """
-
-        try:
-            response = client.models.generate_content(
-                model="gemini-2.5-flash-lite",
-                contents=prompt
-            )
-        except Exception as e:
-            print(f"Error generating content: {e}")
-            return None
-
-        try:
-            clean_content = (
-                response.text.strip()
-                .removeprefix("```json")
-                .removesuffix("```")
-                .strip()
-            )
-        except Exception as e:
-            print(f"Error cleaning response: {e}")
-            return None
-
-        try:
-            json_data = json.loads(clean_content)
-            if isinstance(json_data, dict):
-                all_classified.append(json_data)
-            elif isinstance(json_data, list):
-                all_classified.extend(json_data)
-        except json.JSONDecodeError as e:
-            print(f"Error: The content is not valid JSON. {e}")
-            print("Content attempted to write:")
-            print(clean_content)
-        except Exception as e:
-            print(f"An unexpected error occurred: {e}")
-            return clean_content
-
-    # Step 3: Append new transactions to existing and save
-    updated = existing + all_classified
-    with open(json_file, "w", encoding="utf-8") as f:
-        json.dump(updated, f, indent=2, ensure_ascii=False)
-
-    print(f"Appended {len(all_classified)} new transactions to '{json_file}'")
+=== Response Format
+{{
+    "Amount": "number string",
+    "Classification": "category",
+    "Receiver": "receiver name",
+    "Date": "YYYY-MM-DD HH:MM:SS"
+}}
+"""
+        response = client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=prompt,
+        )
+        clean_content = (
+            response.text.strip().removeprefix("```json").removesuffix("```").strip()
+        )
+        payload = json.loads(clean_content)
+        if isinstance(payload, dict):
+            all_classified.append(payload)
+        elif isinstance(payload, list):
+            all_classified.extend(payload)
     return all_classified
 
-def load_transactions_between(start_date: date, end_date: date):
-    with open(filename, "r") as f:
-        data = json.load(f)
-
-    filtered = []
-    for item in data:
-        tx_date = datetime.strptime(item["Date"], "%Y-%m-%d %H:%M:%S").date()
-        if start_date <= tx_date <= end_date:
-            filtered.append(item)
-
-    return filtered
 
 @app.post("/classify")
-def classify_transactions():
-    classify_transactions_gemini(api_key, activity_filename)
+def classify_transactions(
+    user_email: Optional[str] = Query(default=None),
+    current_user: Optional[Dict[str, Any]] = Depends(get_optional_current_user),
+    x_worker_secret: Optional[str] = Header(default=None),
+):
+    if user_email:
+        ensure_worker(x_worker_secret)
+        user = user_store.get_user_by_email(user_email)
+        if not user:
+            raise HTTPException(status_code=404, detail=f"User not found for {user_email}")
+    else:
+        if not current_user:
+            raise HTTPException(status_code=401, detail="User not authenticated.")
+        user = current_user
+
+    transactions = get_user_transactions(user)
+    classified = classify_transactions_gemini(
+        existing_transactions=transactions,
+        source_activity_filename=activity_filename,
+    )
+    transactions.extend(classified)
+    save_user_transactions(user, transactions)
+    return {"status": "ok", "classified_count": len(classified)}
+
 
 @app.post("/daterange")
-def recieve_date_range(date_range: DateRange):
-    with open(filename, "r") as f:
-        data = json.load(f)
+def receive_date_range(date_range: DateRange, current_user: Dict[str, Any] = Depends(get_current_user)):
+    data = get_user_transactions(current_user)
     filtered = [
-        item for item in data
-        if date_range.startDate <= datetime.strptime(item["Date"], "%Y-%m-%d %H:%M:%S").date() <= date_range.endDate
+        item
+        for item in data
+        if date_range.startDate
+        <= datetime.strptime(item["Date"], "%Y-%m-%d %H:%M:%S").date()
+        <= date_range.endDate
     ]
     return filtered
 
-@app.post("/reclassify")
-def reclassify(Reclassification: ReClassification):
-    try:
-        with open(filename, "r") as f:
-            transactions: List[dict] = json.load(f)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load transactions: {str(e)}")
 
+@app.post("/reclassify")
+def reclassify(payload: ReClassification, current_user: Dict[str, Any] = Depends(get_current_user)):
+    transactions = get_user_transactions(current_user)
     match_found = False
     for tx in transactions:
-        if tx["Date"] == Reclassification.original.Date:
-            tx["Classification"] = Reclassification.newClassification
+        if tx["Date"] == payload.original.Date:
+            tx["Classification"] = payload.newClassification
             match_found = True
             break
-
     if not match_found:
         raise HTTPException(status_code=404, detail="Transaction not found.")
-
-    try:
-        with open(filename, "w") as f:
-            json.dump(transactions, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save updated transactions: {str(e)}")
-
+    save_user_transactions(current_user, transactions)
     return {"status": "updated", "data": transactions}
 
-@app.post("/normalize")
-def normalize(normalization: Normalization):
-    try:
-        with open(filename, "r") as f:
-            transactions: List[dict] = json.load(f)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load transactions: {str(e)}")
 
+@app.post("/normalize")
+def normalize(payload: Normalization, current_user: Dict[str, Any] = Depends(get_current_user)):
+    transactions = get_user_transactions(current_user)
     match_found = False
     for tx in transactions:
-        if tx["Date"] == normalization.original.Date:
-            print(f"Found transaction to normalize: Date={tx['Date']}, Current Amount={tx.get('Amount')}")
-            
-            # Calculate paid to me as sum of all payer amounts
-            paid_to_me_total = 0.0
-            if normalization.payers is not None and len(normalization.payers) > 0:
-                for payer in normalization.payers:
-                    try:
-                        # Remove commas and parse amount
-                        amount_str = payer.amount.replace(",", "").strip()
-                        if amount_str:
-                            paid_to_me_total += float(amount_str)
-                    except (ValueError, AttributeError) as e:
-                        print(f"Error parsing payer amount: {e}")
-                        pass  # Skip invalid amounts
-            
-            print(f"Calculated PaidToMe total: {paid_to_me_total}")
-            
-            # Update normalization fields
-            if paid_to_me_total > 0:
-                # Determine the original amount (never changes once set)
-                # Use OriginalAmount from request if available (calculated by frontend)
-                # Otherwise, calculate from request Amount + existing PaidToMe
+        if tx["Date"] != payload.original.Date:
+            continue
+
+        paid_to_me_total = 0.0
+        if payload.payers:
+            for payer in payload.payers:
                 try:
-                    # Check if request has OriginalAmount (calculated by frontend)
-                    if hasattr(normalization.original, 'OriginalAmount') and normalization.original.OriginalAmount:
-                        true_original = float(normalization.original.OriginalAmount.replace(",", "").strip())
-                        print(f"Using OriginalAmount from request: {true_original}")
-                    else:
-                        # Calculate from request Amount + existing PaidToMe
-                        request_amount = float(normalization.original.Amount.replace(",", "").strip())
-                        existing_paid_to_me = float(tx.get("PaidToMe", "0").replace(",", "").strip()) if tx.get("PaidToMe") else 0.0
-                        # Request amount might be net, so add existing PaidToMe to get original
-                        true_original = request_amount + existing_paid_to_me
-                        print(f"Calculated OriginalAmount: Request={request_amount}, ExistingPaidToMe={existing_paid_to_me}, Original={true_original}")
-                    
-                    # Store or update OriginalAmount
-                    if "OriginalAmount" not in tx or tx["OriginalAmount"] is None:
-                        tx["OriginalAmount"] = str(true_original)
-                        print(f"Stored OriginalAmount: {true_original}")
-                    else:
-                        existing_original = float(tx["OriginalAmount"].replace(",", "").strip())
-                        # Update if different (to fix incorrect values)
-                        if abs(existing_original - true_original) > 0.01:
-                            print(f"Correcting OriginalAmount: Old={existing_original}, New={true_original}")
-                            tx["OriginalAmount"] = str(true_original)
-                        else:
-                            print(f"Using existing OriginalAmount: {tx['OriginalAmount']}")
-                except (ValueError, AttributeError) as e:
-                    print(f"Error determining OriginalAmount: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    # Fallback: use current Amount as original if no PaidToMe exists
-                    if "OriginalAmount" not in tx or tx["OriginalAmount"] is None:
-                        current_amount = float(tx["Amount"].replace(",", "").strip())
-                        existing_paid_to_me = float(tx.get("PaidToMe", "0").replace(",", "").strip()) if tx.get("PaidToMe") else 0.0
-                        original_amount = current_amount + existing_paid_to_me
-                        tx["OriginalAmount"] = str(original_amount)
-                        print(f"Fallback: Stored OriginalAmount: {original_amount}")
-                
-                # Store normalization data
-                tx["PaidToMe"] = str(paid_to_me_total)
-                # Convert Payer objects to dictionaries
-                tx["Payers"] = [{"name": payer.name, "amount": payer.amount} for payer in normalization.payers]
-                
-                # Calculate net amount (original - paid to me) and update Amount
-                try:
-                    original_amount_str = tx["OriginalAmount"].replace(",", "").strip()
-                    original_amount = float(original_amount_str)
-                    net_amount = original_amount - paid_to_me_total
-                    
-                    # CRITICAL: Update the Amount field to the net amount (this is what shows in charts)
-                    old_amount = tx["Amount"]
-                    # Format to 2 decimal places and remove trailing zeros, but keep as string
-                    if net_amount == int(net_amount):
-                        formatted_net = str(int(net_amount))
-                    else:
-                        formatted_net = f"{net_amount:.2f}".rstrip('0').rstrip('.')
-                    
-                    # Force update the Amount field
-                    tx["Amount"] = formatted_net
-                    
-                    # Verify the update
-                    if tx["Amount"] != formatted_net:
-                        print(f"ERROR: Amount update failed! Expected {formatted_net}, got {tx['Amount']}")
-                    else:
-                        print(f"SUCCESS: Updated transaction Amount - Original={original_amount}, PaidToMe={paid_to_me_total}, Net={net_amount}, Old Amount={old_amount}, New Amount={tx['Amount']}")
-                        
-                except (ValueError, AttributeError) as e:
-                    print(f"ERROR updating amount: {e}, OriginalAmount={tx.get('OriginalAmount')}, tx keys={list(tx.keys())}")
-                    import traceback
-                    traceback.print_exc()
-                    pass  # Keep original amount if parsing fails
+                    paid_to_me_total += float(payer.amount.replace(",", "").strip())
+                except (ValueError, AttributeError):
+                    continue
+
+        if paid_to_me_total > 0:
+            if payload.original.OriginalAmount:
+                true_original = float(payload.original.OriginalAmount.replace(",", "").strip())
             else:
-                # Remove normalization if no payers - restore original amount
-                tx.pop("PaidToMe", None)
-                tx.pop("Payers", None)
-                if "OriginalAmount" in tx and tx["OriginalAmount"] is not None:
-                    tx["Amount"] = tx["OriginalAmount"]
-                    tx.pop("OriginalAmount", None)
-                    print(f"Removed normalization, restored Amount to OriginalAmount: {tx['Amount']}")
-            
-            match_found = True
-            break
+                request_amount = float(payload.original.Amount.replace(",", "").strip())
+                existing_paid = float(tx.get("PaidToMe", "0").replace(",", "").strip()) if tx.get("PaidToMe") else 0.0
+                true_original = request_amount + existing_paid
+
+            tx["OriginalAmount"] = str(true_original)
+            tx["PaidToMe"] = str(paid_to_me_total)
+            tx["Payers"] = [{"name": payer.name, "amount": payer.amount} for payer in payload.payers or []]
+
+            net_amount = true_original - paid_to_me_total
+            tx["Amount"] = str(int(net_amount)) if net_amount == int(net_amount) else f"{net_amount:.2f}".rstrip("0").rstrip(".")
+        else:
+            tx.pop("PaidToMe", None)
+            tx.pop("Payers", None)
+            if tx.get("OriginalAmount") is not None:
+                tx["Amount"] = tx["OriginalAmount"]
+                tx.pop("OriginalAmount", None)
+
+        match_found = True
+        break
 
     if not match_found:
         raise HTTPException(status_code=404, detail="Transaction not found.")
 
-    try:
-        with open(filename, "w") as f:
-            json.dump(transactions, f, ensure_ascii=False, indent=2)
-        print(f"Successfully saved transactions to {filename}")
-    except Exception as e:
-        print(f"Error saving transactions: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to save updated transactions: {str(e)}")
+    save_user_transactions(current_user, transactions)
+    updated_tx = next((tx for tx in transactions if tx["Date"] == payload.original.Date), None)
+    return {"status": "updated", "data": transactions, "updated_transaction": updated_tx}
 
-    # Find and return the updated transaction for verification
-    updated_tx = None
-    for tx in transactions:
-        if tx["Date"] == normalization.original.Date:
-            updated_tx = tx
-            break
-    
-    return {
-        "status": "updated", 
-        "data": transactions,
-        "updated_transaction": updated_tx
-    }
 
 @app.post("/add-transaction")
-def add_transaction(transaction: AddTransaction):
-    """Add a new transaction manually."""
-    try:
-        with open(filename, "r") as f:
-            transactions: List[dict] = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        transactions = []
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load transactions: {str(e)}")
-
-    # Check for duplicate (same date and amount)
+def add_transaction(payload: AddTransaction, current_user: Dict[str, Any] = Depends(get_current_user)):
+    transactions = get_user_transactions(current_user)
     for tx in transactions:
-        if tx["Date"] == transaction.Date and tx["Amount"] == transaction.Amount:
+        if tx["Date"] == payload.Date and tx["Amount"] == payload.Amount:
             raise HTTPException(status_code=400, detail="A transaction with this date and amount already exists.")
 
-    # Create new transaction dict
-    new_transaction = {
-        "Amount": transaction.Amount,
-        "Classification": transaction.Classification,
-        "Receiver": transaction.Receiver,
-        "Date": transaction.Date
+    new_tx = {
+        "Amount": payload.Amount,
+        "Classification": payload.Classification,
+        "Receiver": payload.Receiver,
+        "Date": payload.Date,
     }
+    transactions.append(new_tx)
+    save_user_transactions(current_user, transactions)
+    return {"status": "created", "transaction": new_tx}
 
-    transactions.append(new_transaction)
 
-    try:
-        with open(filename, "w") as f:
-            json.dump(transactions, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save transaction: {str(e)}")
+@app.get("/internal/users")
+def internal_list_users(x_worker_secret: Optional[str] = Header(default=None)):
+    ensure_worker(x_worker_secret)
+    users = user_store.list_worker_users()
+    return [
+        {
+            "clerk_user_id": user["clerk_user_id"],
+            "email": user["email"],
+            "transactions_s3_key": user["transactions_s3_key"],
+        }
+        for user in users
+    ]
 
-    return {"status": "created", "transaction": new_transaction}
+
+@app.get("/internal/google-token/{user_email}")
+def internal_get_google_token(user_email: str, x_worker_secret: Optional[str] = Header(default=None)):
+    ensure_worker(x_worker_secret)
+    token_dict = user_store.get_google_tokens_by_email(user_email)
+    if not token_dict:
+        raise HTTPException(status_code=404, detail="Google tokens not found for user.")
+    return token_dict
+
+
+@app.post("/internal/google-token/{user_email}")
+def internal_put_google_token(
+    user_email: str,
+    token_payload: Dict[str, Any],
+    x_worker_secret: Optional[str] = Header(default=None),
+):
+    ensure_worker(x_worker_secret)
+    user = user_store.get_user_by_email(user_email)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+    user_store.save_google_tokens(
+        clerk_user_id=user["clerk_user_id"],
+        email=user["email"],
+        token_dict=token_payload,
+    )
+    return {"status": "updated"}
+
+
+@app.post("/internal/transactions/append")
+def internal_append_transaction(
+    payload: AppendTransactionRequest,
+    x_worker_secret: Optional[str] = Header(default=None),
+):
+    ensure_worker(x_worker_secret)
+    user = user_store.get_user_by_email(payload.user_email)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    transactions = get_user_transactions(user)
+    for existing in transactions:
+        if existing.get("Date") == payload.transaction.get("Date") and existing.get("Amount") == payload.transaction.get("Amount"):
+            return {"status": "duplicate_skipped"}
+    transactions.append(payload.transaction)
+    save_user_transactions(user, transactions)
+    return {"status": "appended"}

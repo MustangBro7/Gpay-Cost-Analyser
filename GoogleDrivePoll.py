@@ -221,16 +221,31 @@ from googleapiclient.errors import HttpError
 from google.oauth2.credentials import Credentials
 
 SCOPES = ['https://www.googleapis.com/auth/drive']
-TOKENS_DIR = "tokens"
-ENDPOINT_URL = "http://api:8000/classify"
+API_BASE_URL = os.getenv("INTERNAL_API_URL", os.getenv("WEBSITE_URL", "http://api:8000"))
+WORKER_SHARED_SECRET = os.getenv("WORKER_SHARED_SECRET")
+ENDPOINT_URL = f"{API_BASE_URL}/classify"
+
+
+def worker_headers():
+    if not WORKER_SHARED_SECRET:
+        raise RuntimeError("WORKER_SHARED_SECRET is not configured.")
+    return {"x-worker-secret": WORKER_SHARED_SECRET}
 
 def load_tokens(user_id: str):
-    path = os.path.join(TOKENS_DIR, f"{user_id}.json")
-    if not os.path.exists(path):
-        print(f"No tokens found for {user_id}. Please log in via /login first.")
+    try:
+        response = requests.get(
+            f"{API_BASE_URL}/internal/google-token/{user_id}",
+            headers=worker_headers(),
+            timeout=20,
+        )
+        if response.status_code == 404:
+            print(f"No tokens found for {user_id}. Please connect Google first.")
+            return None
+        response.raise_for_status()
+        return response.json()
+    except Exception as exc:
+        print(f"Failed to load tokens for {user_id}: {exc}")
         return None
-    with open(path, "r") as f:
-        return json.load(f)
 
 def get_user_service(user_id: str):
     token_dict = load_tokens(user_id)
@@ -301,7 +316,7 @@ def keep_only_one_takeout_file():
     print(f"Kept local file: {to_keep}")
     return os.path.abspath(to_keep)
 
-def extract_my_activity(zip_path, target_filename="My Activity.html"):
+def extract_my_activity(user_id: str, zip_path, target_filename="My Activity.html"):
     """Extracts 'My Activity.html' from the given zip file, replaces existing one, and deletes the zip."""
     try:
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
@@ -317,7 +332,12 @@ def extract_my_activity(zip_path, target_filename="My Activity.html"):
 
                     # 🔥 Call backend classify endpoint
                     try:
-                        response = requests.post(ENDPOINT_URL)
+                        response = requests.post(
+                            ENDPOINT_URL,
+                            params={"user_email": user_id},
+                            headers=worker_headers(),
+                            timeout=60,
+                        )
                         print(f"Called endpoint {ENDPOINT_URL}, status: {response.status_code}")
                     except Exception as e:
                         print(f"Failed to call endpoint: {e}")
@@ -358,7 +378,7 @@ def poll_and_download(user_id: str, folder_name="takeout"):
                 download_file(service, most_recent['id'], filename)
                 delete_file_from_drive(service, most_recent['id'], filename)
                 kept_path = keep_only_one_takeout_file()
-                extract_my_activity(kept_path)
+                extract_my_activity(user_id, kept_path)
             else:
                 print(f"[{user_id}] {filename} already exists, skipping.")
         else:
@@ -366,13 +386,17 @@ def poll_and_download(user_id: str, folder_name="takeout"):
         time.sleep(300)  # poll every 5 minutes
 
 if __name__ == "__main__":
-    if not os.path.exists(TOKENS_DIR):
-        print("No users logged in yet. Run /login first.")
+    try:
+        response = requests.get(f"{API_BASE_URL}/internal/users", headers=worker_headers(), timeout=20)
+        response.raise_for_status()
+        users = [entry["email"] for entry in response.json()]
+    except Exception as exc:
+        print(f"Failed to fetch users from API: {exc}")
+        users = []
+
+    if not users:
+        print("No users found. Connect Google for at least one user.")
     else:
-        users = [f.replace(".json", "") for f in os.listdir(TOKENS_DIR) if f.endswith(".json")]
-        if not users:
-            print("No users found. Run /login first.")
-        else:
-            for user in users:
-                print(f"Starting poller for {user}")
-                poll_and_download(user)
+        for user in users:
+            print(f"Starting poller for {user}")
+            poll_and_download(user)

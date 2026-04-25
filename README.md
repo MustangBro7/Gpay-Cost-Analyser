@@ -26,9 +26,9 @@ A comprehensive financial transaction analysis system that automatically monitor
 - **Transaction Normalization**: Split shared expenses and track who paid
 
 ### Multi-User Support
-- OAuth2 authentication with Google
-- Support for multiple users with separate token management
-- Secure credential storage
+- Clerk authentication for application sessions
+- Google OAuth2 connection per Clerk user for Gmail + Drive scopes
+- User-scoped transaction storage in S3/R2 with Turso metadata
 
 ## 🏗️ Architecture
 
@@ -48,11 +48,11 @@ The system consists of several microservices orchestrated via Docker Compose:
          │
     ┌────┴────┬──────────────┬─────────────┐
     ▼         ▼              ▼             ▼
-┌────────┐ ┌──────────┐ ┌──────────┐ ┌─────────┐
-│ Email  │ │  Google  │ │ Gemini   │ │  JSON   │
-│Monitor │ │  Drive   │ │   AI     │ │ Storage │
-│Service │ │  Poller  │ │          │ │         │
-└────────┘ └──────────┘ └──────────┘ └─────────┘
+┌────────┐ ┌──────────┐ ┌──────────┐ ┌─────────┐ ┌────────┐
+│ Email  │ │  Google  │ │ Gemini   │ │ Turso   │ │ S3/R2  │
+│Monitor │ │  Drive   │ │   AI     │ │ Metadata│ │ Blobs  │
+│Service │ │  Poller  │ │          │ │         │ │        │
+└────────┘ └──────────┘ └──────────┘ └─────────┘ └────────┘
 ```
 
 ### Services
@@ -73,6 +73,9 @@ The system consists of several microservices orchestrated via Docker Compose:
   - OAuth 2.0 credentials
   - Gmail API enabled
   - Google Drive API enabled
+- **Clerk project** for frontend auth
+- **Turso/libsql database**
+- **S3-compatible bucket** (AWS S3 or Cloudflare R2)
 - **Google Gemini API Key** (or OpenAI API key)
 - **Gmail Account** with IMAP enabled
 
@@ -116,6 +119,30 @@ WEBSITE_URL=http://localhost:8000
 
 # Optional: Frontend URL
 NEXT_PUBLIC_API_URL=http://localhost:8000
+
+# Clerk JWT verification (FastAPI)
+CLERK_ISSUER=https://your-clerk-domain
+# Optional explicit JWKS url:
+# CLERK_JWKS_URL=https://your-clerk-domain/.well-known/jwks.json
+
+# Worker/API shared secret for email monitor + drive poller
+WORKER_SHARED_SECRET=your-long-random-secret
+
+# Turso metadata store (sqlite/libsql local replica path)
+TURSO_DATABASE_PATH=data/turso.db
+
+# S3 / R2 transaction blob store
+TRANSACTIONS_BUCKET=your-transactions-bucket
+AWS_REGION=auto
+S3_ENDPOINT_URL=https://<accountid>.r2.cloudflarestorage.com
+S3_ACCESS_KEY_ID=...
+S3_SECRET_ACCESS_KEY=...
+
+# Optional local fallback if S3 vars are missing
+LOCAL_TRANSACTIONS_DIR=data/transactions
+
+# Optional internal service URL (workers -> API)
+INTERNAL_API_URL=http://localhost:8000
 ```
 
 ### 3. Frontend Setup
@@ -129,6 +156,7 @@ Create a `.env.local` file in `financial-dashboard/`:
 
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
 ```
 
 ### 4. Initial Authentication
@@ -138,9 +166,9 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
    uvicorn gemini_test:app --reload --port 8000
    ```
 
-2. Visit `http://localhost:8000/login` in your browser
-3. Complete the OAuth flow to authorize access to Gmail and Google Drive
-4. Your tokens will be saved in the `tokens/` directory
+2. Sign in to the dashboard using Clerk
+3. Trigger Google connection from the re-auth flow (`/login` endpoint with Clerk context)
+4. Google OAuth tokens are stored in Turso metadata
 
 ## 🚀 Running the Application
 
@@ -184,10 +212,10 @@ This will start all services:
 ### Authentication
 - `GET /login` - Initiate Google OAuth login
 - `GET /oauth2callback` - OAuth callback handler
-- `GET /users` - List all authenticated users
+- `GET /token-status` - Current authenticated user's Google token status
 
 ### Transactions
-- `POST /daterange` - Get transactions within a date range
+- `POST /daterange` - Get current user's transactions within a date range
   ```json
   {
     "startDate": "2024-01-01",
@@ -227,6 +255,12 @@ This will start all services:
 
 - `POST /classify` - Classify transactions from HTML file (batch processing)
 
+### Internal Worker Endpoints (protected by `x-worker-secret`)
+- `GET /internal/users`
+- `GET /internal/google-token/{user_email}`
+- `POST /internal/google-token/{user_email}`
+- `POST /internal/transactions/append`
+
 ## 📁 Project Structure
 
 ```
@@ -240,8 +274,8 @@ Gpay-Cost-Analyser/
 ├── docker-compose.yml        # Docker Compose configuration
 ├── credentials.json          # Google OAuth credentials (not in repo)
 ├── .env                      # Environment variables (not in repo)
-├── new_transactions.json     # Transaction storage
-├── tokens/                   # OAuth tokens (per user)
+├── storage_layer.py          # Turso metadata + S3/R2 transaction blob abstraction
+├── data/                     # Local dev fallback (sqlite + JSON blobs)
 ├── financial-dashboard/      # Next.js frontend
 │   ├── src/
 │   │   ├── app/             # Next.js app router
@@ -256,7 +290,8 @@ Gpay-Cost-Analyser/
 ## 🔐 Security Notes
 
 - **Never commit** `credentials.json`, `.env`, or `tokens/` directory to version control
-- OAuth tokens are stored per-user in the `tokens/` directory
+- OAuth tokens are stored in Turso metadata rows per user
+- Transactions are stored in S3/R2 blobs keyed by user
 - The system uses OAuth2 refresh tokens for long-term access
 - Email monitoring uses XOAUTH2 authentication with Gmail IMAP
 
@@ -279,14 +314,15 @@ Gpay-Cost-Analyser/
 
 ## 🚢 Deployment
 
-The project includes Docker Compose configuration for easy deployment. For production:
+The legacy Docker/Lightsail deployment path is no longer the production backend deployment target.
 
-1. Update `WEBSITE_URL` in `.env` to your production domain
-2. Configure Nginx in `nginx/conf.d/` for your domain
-3. Set up SSL certificates (Certbot is included)
-4. Run `docker-compose up -d`
+- Backend production deploys now go to Cloudflare Workers from `cloudflare-backend/cloudflare-backend`
+- GitHub pushes to `develop` trigger the Cloudflare backend deploy workflow in `.github/workflows/deploy.yml`
+- Legacy Docker files remain in the repo for reference and local experimentation only
 
-See `.github/workflows/deploy.yml` for CI/CD configuration example.
+To keep GitHub auto-deploy working, configure these repository secrets:
+
+- `CLOUDFLARE_API_TOKEN`
 
 ## 📝 Transaction Classification Rules
 

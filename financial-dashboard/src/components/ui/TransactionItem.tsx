@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { NormalizeTransactionDialog } from "@/components/ui/NormalizeTransactionDialog"
 import { Transaction } from "@/types/Transaction"
+import { useAuthedFetch } from "@/lib/useAuthedFetch"
 
 export function TransactionItem({
   tx,
@@ -17,10 +18,11 @@ export function TransactionItem({
   const [newClass, setNewClass] = React.useState("")
   const [normalizeDialogOpen, setNormalizeDialogOpen] = React.useState(false)
   const website_url = process.env.NEXT_PUBLIC_API_URL
+  const authedFetch = useAuthedFetch()
 
   const handleReclassify = async () => {
     try {
-      await fetch(`${website_url}/reclassify`, {
+      await authedFetch(`${website_url}/reclassify`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -9,6 +9,7 @@ import re
 import time
 import base64
 import email
+import requests
 from email.header import decode_header
 from datetime import datetime
 from typing import Optional, Dict, List
@@ -21,10 +22,10 @@ from google import genai
 # === Config ===
 load_dotenv()
 
-TOKENS_DIR = "tokens"
-TRANSACTIONS_FILE = "new_transactions.json"
 HDFC_SENDERS = ["alerts@hdfcbank.net", "alerts@hdfcbank.bank.in"]
 PROCESSED_IDS_FILE = "processed_email_ids.json"
+API_BASE_URL = os.getenv("INTERNAL_API_URL", os.getenv("WEBSITE_URL", "http://localhost:8000"))
+WORKER_SHARED_SECRET = os.getenv("WORKER_SHARED_SECRET")
 
 # Gmail IMAP settings
 IMAP_HOST = "imap.gmail.com"
@@ -33,21 +34,42 @@ IMAP_PORT = 993
 api_key = os.getenv("OPENAI_API_KEY")
 
 
+def worker_headers() -> Dict[str, str]:
+    if not WORKER_SHARED_SECRET:
+        raise RuntimeError("WORKER_SHARED_SECRET is not configured.")
+    return {"x-worker-secret": WORKER_SHARED_SECRET}
+
+
 def load_tokens(user_id: str) -> Optional[dict]:
-    """Load OAuth tokens for a user."""
-    path = os.path.join(TOKENS_DIR, f"{user_id}.json")
-    if not os.path.exists(path):
-        print(f"No tokens found for {user_id}")
+    """Load OAuth tokens for a user from API metadata store."""
+    try:
+        response = requests.get(
+            f"{API_BASE_URL}/internal/google-token/{user_id}",
+            headers=worker_headers(),
+            timeout=20,
+        )
+        if response.status_code == 404:
+            print(f"No tokens found for {user_id}")
+            return None
+        response.raise_for_status()
+        return response.json()
+    except Exception as exc:
+        print(f"Failed to load tokens for {user_id}: {exc}")
         return None
-    with open(path, "r") as f:
-        return json.load(f)
 
 
 def save_tokens(user_id: str, token_dict: dict):
-    """Save refreshed tokens back to file."""
-    os.makedirs(TOKENS_DIR, exist_ok=True)
-    with open(os.path.join(TOKENS_DIR, f"{user_id}.json"), "w") as f:
-        json.dump(token_dict, f)
+    """Persist refreshed tokens back to API metadata store."""
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/internal/google-token/{user_id}",
+            headers=worker_headers(),
+            json=token_dict,
+            timeout=20,
+        )
+        response.raise_for_status()
+    except Exception as exc:
+        print(f"Failed to save refreshed tokens for {user_id}: {exc}")
 
 
 def get_valid_credentials(user_id: str, force_refresh: bool = False) -> Optional[Credentials]:
@@ -379,28 +401,25 @@ def extract_and_classify_transaction(body: str, email_timestamp: Optional[str] =
         return None
 
 
-def save_transaction(transaction: Dict):
-    """Append transaction to JSON file."""
+def save_transaction(user_id: str, transaction: Dict):
+    """Append transaction to per-user store through API."""
     try:
-        with open(TRANSACTIONS_FILE, "r", encoding="utf-8") as f:
-            transactions = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        transactions = []
-    
-    # Check for duplicates by date and amount
-    for existing in transactions:
-        if (existing.get("Date") == transaction.get("Date") and 
-            existing.get("Amount") == transaction.get("Amount")):
+        response = requests.post(
+            f"{API_BASE_URL}/internal/transactions/append",
+            headers=worker_headers(),
+            json={"user_email": user_id, "transaction": transaction},
+            timeout=20,
+        )
+        response.raise_for_status()
+        status = response.json().get("status")
+        if status == "duplicate_skipped":
             print(f"Duplicate transaction found, skipping: {transaction}")
             return False
-    
-    transactions.append(transaction)
-    
-    with open(TRANSACTIONS_FILE, "w", encoding="utf-8") as f:
-        json.dump(transactions, f, indent=2, ensure_ascii=False)
-    
-    print(f"Saved transaction: {transaction}")
-    return True
+        print(f"Saved transaction for {user_id}: {transaction}")
+        return True
+    except Exception as exc:
+        print(f"Failed to save transaction for {user_id}: {exc}")
+        return False
 
 
 def get_email_timestamp(msg) -> Optional[str]:
@@ -419,7 +438,7 @@ def get_email_timestamp(msg) -> Optional[str]:
     return None
 
 
-def process_email(msg, message_id: str) -> bool:
+def process_email(msg, message_id: str, user_id: str) -> bool:
     """Process a single email and extract/classify transaction."""
     # Get sender
     from_header = msg.get("From", "")
@@ -451,7 +470,7 @@ def process_email(msg, message_id: str) -> bool:
     print(f"Extracted transaction: {transaction}")
     
     # Save transaction
-    if save_transaction(transaction):
+    if save_transaction(user_id, transaction):
         save_processed_id(message_id)
         return True
     
@@ -542,7 +561,7 @@ def connect_and_idle(user_id: str):
                                             message_id = msg.get("Message-ID", str(uid))
                                             
                                             if message_id not in processed_ids:
-                                                if process_email(msg, message_id):
+                                                if process_email(msg, message_id, user_id):
                                                     client.set_flags([uid], [b"\\Seen"])
                                     except Exception as e:
                                         print(f"Error processing email {uid}: {e}")
@@ -590,11 +609,13 @@ def main():
     
     print("Starting Email Monitor Service...")
     
-    if not os.path.exists(TOKENS_DIR):
-        print("No users logged in yet. Run /login first.")
+    try:
+        response = requests.get(f"{API_BASE_URL}/internal/users", headers=worker_headers(), timeout=20)
+        response.raise_for_status()
+        users = [entry["email"] for entry in response.json()]
+    except Exception as exc:
+        print(f"Failed to fetch users from API: {exc}")
         return
-    
-    users = [f.replace(".json", "") for f in os.listdir(TOKENS_DIR) if f.endswith(".json")]
     
     if not users:
         print("No users found. Run /login first.")

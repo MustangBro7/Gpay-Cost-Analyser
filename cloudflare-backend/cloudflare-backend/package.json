@@ -1,0 +1,21 @@
+{
+  "name": "cloudflare-backend",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy --minify",
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings",
+    "check": "npm run cf-typegen && tsc --noEmit",
+    "db:migrate:local": "wrangler d1 migrations apply gpay-cost-analyser --local",
+    "db:migrate:remote": "wrangler d1 migrations apply gpay-cost-analyser --remote"
+  },
+  "dependencies": {
+    "@clerk/backend": "^2.19.2",
+    "hono": "^4.12.15",
+    "jose": "^6.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "wrangler": "^4.85.0"
+  }
+}

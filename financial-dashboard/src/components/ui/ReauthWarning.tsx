@@ -3,10 +3,13 @@
 import * as React from 'react'
 import { AlertTriangle, LogIn, Clock } from 'lucide-react'
 import { Button } from './button'
-import { useTokenStatus, TokenStatus } from '@/hooks/useTokenStatus'
+import { useTokenStatus } from '@/hooks/useTokenStatus'
+import { useAuthedFetch } from '@/lib/useAuthedFetch'
 
 interface ReauthWarningProps {
   className?: string
+  userId?: string
+  userEmail?: string
 }
 
 function formatTimeRemaining(hours: number): string {
@@ -23,9 +26,11 @@ function formatTimeRemaining(hours: number): string {
   return `${wholeHours}h ${minutes}m`
 }
 
-export function ReauthWarning({ className }: ReauthWarningProps) {
+export function ReauthWarning({ className, userId, userEmail }: ReauthWarningProps) {
   const { needsReauth, urgentUser, isLoading } = useTokenStatus({ pollInterval: 30000 })
   const apiUrl = process.env.NEXT_PUBLIC_API_URL
+  const authedFetch = useAuthedFetch()
+  const [isRedirecting, setIsRedirecting] = React.useState(false)
 
   // Don't render anything if no re-auth needed or still loading
   if (isLoading || !needsReauth || !urgentUser) {
@@ -35,9 +40,26 @@ export function ReauthWarning({ className }: ReauthWarningProps) {
   const isExpired = urgentUser.hours_remaining <= 0
   const timeRemaining = formatTimeRemaining(urgentUser.hours_remaining)
 
-  const handleReauth = () => {
-    // Open login in the same window - it will redirect back after successful auth
-    window.location.href = `${apiUrl}/login`
+  const handleReauth = async () => {
+    if (!apiUrl || isRedirecting) return
+
+    setIsRedirecting(true)
+    try {
+      const response = await authedFetch(`${apiUrl}/google/connect-url`, {
+        method: 'POST',
+      })
+      if (!response.ok) {
+        throw new Error(`Failed to create Google connect URL: ${response.status}`)
+      }
+      const data = await response.json() as { authorizationUrl?: string }
+      if (!data.authorizationUrl) {
+        throw new Error('Google connect URL missing from response.')
+      }
+      window.location.href = data.authorizationUrl
+    } catch (error) {
+      console.error('Failed to start Google re-authentication:', error)
+      setIsRedirecting(false)
+    }
   }
 
   return (
@@ -59,7 +81,7 @@ export function ReauthWarning({ className }: ReauthWarningProps) {
                   {isExpired ? 'Session Expired' : 'Session Expiring Soon'}
                 </h2>
                 <p className="text-sm text-muted-foreground">
-                  {urgentUser.user_id}
+                  {urgentUser.google_email || userEmail || userId || urgentUser.user_id}
                 </p>
               </div>
             </div>
@@ -69,8 +91,8 @@ export function ReauthWarning({ className }: ReauthWarningProps) {
           <div className="px-6 py-5 space-y-4">
             <p className="text-muted-foreground">
               {isExpired 
-                ? 'Your authentication has expired. Please log in again to continue monitoring your transactions.'
-                : 'Your authentication will expire soon. Please re-authenticate to ensure uninterrupted transaction monitoring.'
+                ? 'Your Google connection needs to be restored before email monitoring can continue.'
+                : 'Your Google connection needs attention. Re-authenticate to restore email monitoring.'
               }
             </p>
             
@@ -78,7 +100,7 @@ export function ReauthWarning({ className }: ReauthWarningProps) {
             {!isExpired && (
               <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50 border border-border">
                 <Clock className="w-5 h-5 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">Time remaining:</span>
+                <span className="text-sm text-muted-foreground">Last known window:</span>
                 <span className={`text-sm font-semibold ${urgentUser.hours_remaining < 1 ? 'text-destructive' : 'text-amber-500'}`}>
                   {timeRemaining}
                 </span>
@@ -97,9 +119,10 @@ export function ReauthWarning({ className }: ReauthWarningProps) {
               onClick={handleReauth}
               className="w-full gap-2"
               size="lg"
+              disabled={isRedirecting}
             >
               <LogIn className="w-4 h-4" />
-              Re-authenticate Now
+              {isRedirecting ? 'Redirecting...' : 'Re-authenticate Now'}
             </Button>
           </div>
         </div>

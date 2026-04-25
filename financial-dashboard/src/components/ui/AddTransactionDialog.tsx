@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/popover"
 import { CalendarIcon, Check, ChevronsUpDown } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useAuthedFetch } from "@/lib/useAuthedFetch"
 import { format } from "date-fns"
 
 interface AddTransactionDialogProps {
@@ -65,6 +66,7 @@ export function AddTransactionDialog({
   const classificationInputRef = React.useRef<HTMLInputElement>(null)
   const dropdownRef = React.useRef<HTMLDivElement>(null)
   const website_url = process.env.NEXT_PUBLIC_API_URL
+  const authedFetch = useAuthedFetch()
 
   // Filter classifications based on input
   const filteredClassifications = React.useMemo(() => {
@@ -148,7 +150,7 @@ export function AddTransactionDialog({
       dateTime.setHours(hours, minutes, 0, 0)
       const formattedDate = format(dateTime, "yyyy-MM-dd HH:mm:ss")
 
-      const response = await fetch(`${website_url}/add-transaction`, {
+      const response = await authedFetch(`${website_url}/add-transaction`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

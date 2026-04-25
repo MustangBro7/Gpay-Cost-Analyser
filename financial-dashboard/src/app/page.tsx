@@ -14,6 +14,8 @@ import { AddTransactionDialog } from "@/components/ui/AddTransactionDialog"
 import { ReauthWarning } from "@/components/ui/ReauthWarning"
 import { Button } from "@/components/ui/button"
 import { formatLocalDate } from "@/lib/utils"
+import { useAuthedFetch } from "@/lib/useAuthedFetch"
+import { SignedIn, SignedOut, SignInButton, useUser } from "@clerk/nextjs"
 import { Plus } from "lucide-react"
 
 export default function Home() {
@@ -23,9 +25,11 @@ export default function Home() {
   const [isInitialLoad, setIsInitialLoad] = React.useState(true)
   const [isAddDialogOpen, setIsAddDialogOpen] = React.useState(false)
   const website_url = process.env.NEXT_PUBLIC_API_URL
+  const authedFetch = useAuthedFetch()
+  const { user } = useUser()
 
   const fetchData = React.useCallback(async (range: { from: Date; to: Date }) => {
-    const response = await fetch(`${website_url}/daterange`, {
+    const response = await authedFetch(`${website_url}/daterange`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -36,11 +40,11 @@ export default function Home() {
     const data = await response.json()
     setData(data)
     setIsInitialLoad(false)
-  }, [website_url])
+  }, [authedFetch, website_url])
 
   // Auto-load this month's data on initial page load
   React.useEffect(() => {
-    if (isInitialLoad) {
+    if (isInitialLoad && user) {
       const now = new Date()
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
       const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0)
@@ -49,7 +53,7 @@ export default function Home() {
       setDateRange(initialRange)
       fetchData(initialRange)
     }
-  }, [isInitialLoad, fetchData])
+  }, [isInitialLoad, fetchData, user])
 
   const handleDataFetched = (data: Transaction[], range: { from: Date; to: Date }) => {
     setData(data)
@@ -69,8 +73,20 @@ export default function Home() {
 
   return (
     <>
+      <SignedOut>
+        <main className="min-h-screen flex items-center justify-center px-4">
+          <div className="text-center space-y-4">
+            <h1 className="text-2xl font-semibold">Sign in to continue</h1>
+            <SignInButton mode="modal">
+              <Button>Sign in</Button>
+            </SignInButton>
+          </div>
+        </main>
+      </SignedOut>
+
+      <SignedIn>
       {/* Re-authentication Warning - shows when token is expiring */}
-      <ReauthWarning />
+      <ReauthWarning userId={user?.id} userEmail={user?.primaryEmailAddress?.emailAddress ?? undefined} />
       
       <main className="flex flex-col items-center justify-center px-4 py-6 sm:p-6 space-y-5 sm:space-y-6 w-full max-w-7xl mx-auto">
         {/* Header section with date picker and add button */}
@@ -118,6 +134,7 @@ export default function Home() {
 
         <Toaster />
       </main>
+      </SignedIn>
     </>
   )
 }

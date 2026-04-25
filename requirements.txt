@@ -21,6 +21,8 @@ lxml==5.3.0
 # Utilities
 python-dotenv==1.0.1
 requests==2.32.3
+boto3==1.35.41
+PyJWT==2.9.0
 
 # Email monitoring
 imapclient>=3.0.0

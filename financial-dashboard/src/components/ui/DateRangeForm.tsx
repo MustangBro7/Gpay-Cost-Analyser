@@ -13,6 +13,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { formatLocalDate } from "@/lib/utils"
+import { useAuthedFetch } from "@/lib/useAuthedFetch"
 import { Loader2 } from "lucide-react"
 
 // Helper function to get start and end of current month
@@ -78,6 +79,7 @@ export function DateRangeForm({
   const [isLoading, setIsLoading] = React.useState(false)
   const [isPopoverOpen, setIsPopoverOpen] = React.useState(false)
   const isFirstRender = React.useRef(true)
+  const authedFetch = useAuthedFetch()
 
   // Fetch data whenever date range changes (after both from and to are selected)
   React.useEffect(() => {
@@ -96,7 +98,7 @@ export function DateRangeForm({
       setIsLoading(true)
       try {
         const website_url = process.env.NEXT_PUBLIC_API_URL
-        const response = await fetch(`${website_url}/daterange`, {
+        const response = await authedFetch(`${website_url}/daterange`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -115,7 +117,7 @@ export function DateRangeForm({
     }
 
     fetchData()
-  }, [date?.from?.getTime(), date?.to?.getTime()])
+  }, [authedFetch, date?.from?.getTime(), date?.to?.getTime()])
 
   const handlePresetSelect = (range: DateRange) => {
     setDate(range)

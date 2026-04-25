@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog"
 import { Plus, X } from "lucide-react"
 import { Transaction } from "@/types/Transaction"
+import { useAuthedFetch } from "@/lib/useAuthedFetch"
 
 interface Payer {
   name: string
@@ -38,6 +39,7 @@ export function NormalizeTransactionDialog({
   )
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const website_url = process.env.NEXT_PUBLIC_API_URL
+  const authedFetch = useAuthedFetch()
 
   // Reset form when transaction changes or dialog opens
   React.useEffect(() => {
@@ -87,7 +89,7 @@ export function NormalizeTransactionDialog({
         OriginalAmount: transaction.OriginalAmount || String(originalAmount),
       }
       
-      const response = await fetch(`${website_url}/normalize`, {
+      const response = await authedFetch(`${website_url}/normalize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

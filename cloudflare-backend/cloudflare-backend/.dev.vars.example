@@ -1,0 +1,10 @@
+# Copy this file to `.dev.vars` for local `wrangler dev` if you want local secrets.
+# Production secrets should be added with `wrangler secret put <NAME>`.
+
+CLERK_SECRET_KEY=
+CLERK_PUBLISHABLE_KEY=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_PUBSUB_AUDIENCE=
+GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL=
+GEMINI_API_KEY=

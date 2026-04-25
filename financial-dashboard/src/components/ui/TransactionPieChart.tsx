@@ -21,6 +21,7 @@ import { Toaster } from "@/components/ui/sonner"
 import { TransactionItem } from "./TransactionItem"
 import { Button } from "@/components/ui/button"
 import { X } from "lucide-react"
+import { useAuthedFetch } from "@/lib/useAuthedFetch"
 // 👇 Subcomponent for each transaction
 export function TransactionItem1({
   tx,
@@ -31,9 +32,10 @@ export function TransactionItem1({
 }){
   const [newClass, setNewClass] = React.useState("")
   const website_url = process.env.NEXT_PUBLIC_API_URL
+  const authedFetch = useAuthedFetch()
     const handleReclassify = async () => {
       try {
-        await fetch(`${website_url}/reclassify`, {
+        await authedFetch(`${website_url}/reclassify`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

@@ -116,20 +116,20 @@ def getTransactionsInBatches(batch_size=500):
 #         yield results[i:i + batch_size]
 
 def extract_completed_transactions(
-    filename, batch_size=500, json_file="new_transactions.json"
+    filename, batch_size=500, json_file="new_transactions.json", existing_transactions=None
 ):
-    # Load latest transaction date from JSON
+    # Load latest transaction date from existing records
+    latest_date = None
     try:
-        with open(json_file, "r", encoding="utf-8") as f:
-            existing = json.load(f)
-        if existing:
+        if existing_transactions is None:
+            with open(json_file, "r", encoding="utf-8") as f:
+                existing_transactions = json.load(f)
+        if existing_transactions:
             latest_date = max(
                 datetime.strptime(tx["Date"], "%Y-%m-%d %H:%M:%S")
-                for tx in existing
+                for tx in existing_transactions
             )
-            print(f"Latest transaction date in JSON: {latest_date}")
-        else:
-            latest_date = None
+            print(f"Latest transaction date in records: {latest_date}")
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
         latest_date = None
 
