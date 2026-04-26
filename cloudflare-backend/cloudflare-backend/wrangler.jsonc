@@ -4,8 +4,8 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-04-25",
   "vars": {
-    "FRONTEND_ORIGIN": "https://gpayanalyze.co.in",
-    "FRONTEND_ORIGINS": "https://gpayanalyze.co.in,http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001",
+    "FRONTEND_ORIGIN": "https://app.gpayanalyze.co.in",
+    "FRONTEND_ORIGINS": "https://app.gpayanalyze.co.in,https://gpay-cost-analyser-lok3.vercel.app,http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001",
     "GOOGLE_OAUTH_REDIRECT_URI": "https://api.gpayanalyze.co.in/oauth2callback",
     "GOOGLE_PUBSUB_TOPIC_NAME": "projects/directed-graph-394817/topics/gpay-cost-analyser-gmail",
     "HDFC_SENDERS": "alerts@hdfcbank.net,alerts@hdfcbank.bank.in",
