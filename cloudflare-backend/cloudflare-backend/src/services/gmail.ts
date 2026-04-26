@@ -1,8 +1,9 @@
+import { GMAIL_READONLY_SCOPE, getGoogleAccountStatus, getGoogleOauthAccessToken } from '../auth/clerk'
 import { Env, GmailPushPayload, ParsedEmailMessage, Transaction } from '../types'
 import { UserRepository } from '../repositories/user-repository'
 import { TransactionRepository } from '../repositories/transaction-repository'
 import { extractAndClassifyTransaction } from './classifier'
-import { fetchGoogleUserInfo, gmailRequest, refreshGoogleAccessToken } from './google'
+import { gmailRequest } from './google'
 import { parseGmailMessage } from '../utils/email'
 import { HttpError } from '../utils/http'
 import { addHours, isPast, nowIso } from '../utils/time'
@@ -49,72 +50,105 @@ export class GmailService {
       .filter(Boolean)
   }
 
-  async getValidAccessToken(clerkUserId: string): Promise<{ accessToken: string; googleEmail: string }> {
+  async syncGoogleConnection(clerkUserId: string): Promise<{
+    authStatus: 'active' | 'disconnected' | 'reauth_required'
+    googleEmail: string | null
+    reauthReason: string | null
+  }> {
     const user = await this.users.getUserByClerkId(clerkUserId)
     if (!user) {
       throw new HttpError(404, 'User not found.')
     }
 
-    const tokenRecord = await this.users.getGoogleTokens(clerkUserId)
-    if (!tokenRecord) {
-      throw new HttpError(404, 'Google account not connected.')
-    }
-
-    if (!isPast(tokenRecord.token_expiry_at)) {
-      if (!user.google_email) {
-        const userInfo = await fetchGoogleUserInfo(tokenRecord.access_token)
-        await this.users.setGoogleAuthStatus(clerkUserId, {
-          authStatus: 'active',
-          googleEmail: userInfo.email,
-          googleConnectedAt: user.google_connected_at ?? tokenRecord.auth_timestamp,
-        })
-        return { accessToken: tokenRecord.access_token, googleEmail: userInfo.email }
+    const googleAccount = await getGoogleAccountStatus(this.env, clerkUserId)
+    if (!googleAccount.hasGoogleAccount) {
+      await this.users.setGoogleAuthStatus(clerkUserId, {
+        authStatus: 'disconnected',
+      })
+      return {
+        authStatus: 'disconnected',
+        googleEmail: null,
+        reauthReason: 'google_sign_in_required',
       }
-      return { accessToken: tokenRecord.access_token, googleEmail: user.google_email }
     }
 
-    if (!tokenRecord.refresh_token) {
+    if (!googleAccount.hasGmailScope) {
       await this.users.setGoogleAuthStatus(clerkUserId, {
         authStatus: 'reauth_required',
+        googleEmail: googleAccount.googleEmail,
+        googleConnectedAt: user.google_connected_at ?? nowIso(),
       })
-      throw new HttpError(401, 'Google refresh token is missing. Re-authentication required.')
+      return {
+        authStatus: 'reauth_required',
+        googleEmail: googleAccount.googleEmail,
+        reauthReason: 'gmail_scope_missing',
+      }
+    }
+
+    await this.users.setGoogleAuthStatus(clerkUserId, {
+      authStatus: 'active',
+      googleEmail: googleAccount.googleEmail,
+      googleConnectedAt: user.google_connected_at ?? nowIso(),
+    })
+    return {
+      authStatus: 'active',
+      googleEmail: googleAccount.googleEmail,
+      reauthReason: null,
+    }
+  }
+
+  async getValidAccessToken(clerkUserId: string): Promise<{ accessToken: string; googleEmail: string }> {
+    const state = await this.syncGoogleConnection(clerkUserId)
+    if (state.authStatus === 'disconnected') {
+      throw new HttpError(404, 'Google account is not connected through Clerk.')
+    }
+
+    if (state.authStatus === 'reauth_required' || !state.googleEmail) {
+      throw new HttpError(401, 'Google account is missing Gmail read access. Re-authentication required.')
     }
 
     try {
-      const refreshed = await refreshGoogleAccessToken(this.env, tokenRecord.refresh_token)
-      const accessToken = refreshed.access_token
-      const googleEmail = user.google_email ?? (await fetchGoogleUserInfo(accessToken)).email
+      const tokenRecord = await getGoogleOauthAccessToken(this.env, clerkUserId)
+      if (!tokenRecord.token) {
+        await this.users.setGoogleAuthStatus(clerkUserId, {
+          authStatus: 'reauth_required',
+          googleEmail: state.googleEmail,
+        })
+        throw new HttpError(401, 'Google OAuth token is unavailable from Clerk.')
+      }
+      if (!tokenRecord.scopes.includes(GMAIL_READONLY_SCOPE)) {
+        await this.users.setGoogleAuthStatus(clerkUserId, {
+          authStatus: 'reauth_required',
+          googleEmail: state.googleEmail,
+        })
+        throw new HttpError(401, 'Google OAuth token is missing Gmail readonly scope.')
+      }
 
-      await this.users.saveGoogleTokens(clerkUserId, {
-        accessToken,
-        refreshToken: tokenRecord.refresh_token,
-        tokenExpiryAt: refreshed.token_expiry_at,
-        scopes: JSON.parse(tokenRecord.scopes_json) as string[],
-        authTimestamp: tokenRecord.auth_timestamp,
-        lastRefreshAt: refreshed.refreshed_at,
-        lastRefreshError: null,
-      })
-      await this.users.setGoogleAuthStatus(clerkUserId, {
-        authStatus: 'active',
-        googleEmail,
-        googleConnectedAt: user.google_connected_at ?? tokenRecord.auth_timestamp,
-      })
-      return { accessToken, googleEmail }
+      return { accessToken: tokenRecord.token, googleEmail: state.googleEmail }
     } catch (error) {
-      await this.users.saveGoogleTokens(clerkUserId, {
-        accessToken: tokenRecord.access_token,
-        refreshToken: tokenRecord.refresh_token,
-        tokenExpiryAt: tokenRecord.token_expiry_at,
-        scopes: JSON.parse(tokenRecord.scopes_json) as string[],
-        authTimestamp: tokenRecord.auth_timestamp,
-        lastRefreshAt: tokenRecord.last_refresh_at,
-        lastRefreshError: error instanceof Error ? error.message : 'Failed to refresh access token.',
-      })
       await this.users.setGoogleAuthStatus(clerkUserId, {
         authStatus: 'reauth_required',
+        googleEmail: state.googleEmail,
       })
       throw error
     }
+  }
+
+  async ensureWatch(clerkUserId: string): Promise<{ historyId: string | null; expiration: string | null } | null> {
+    const state = await this.syncGoogleConnection(clerkUserId)
+    if (state.authStatus !== 'active') {
+      return null
+    }
+
+    const watch = await this.users.getWatchStateByClerkId(clerkUserId)
+    if (watch?.status === 'active' && watch.watch_expiration_at && !isPast(watch.watch_expiration_at)) {
+      return {
+        historyId: watch.last_history_id ?? null,
+        expiration: watch.watch_expiration_at,
+      }
+    }
+
+    return this.createWatch(clerkUserId)
   }
 
   async createWatch(clerkUserId: string): Promise<{ historyId: string | null; expiration: string | null }> {

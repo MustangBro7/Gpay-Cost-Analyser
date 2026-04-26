@@ -1,4 +1,4 @@
-import { Context, Hono } from 'hono'
+import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
 import { requireClerkUser } from './auth/clerk'
@@ -6,7 +6,6 @@ import { verifyPubSubPush } from './auth/pubsub'
 import { TransactionRepository } from './repositories/transaction-repository'
 import { UserRepository } from './repositories/user-repository'
 import { GmailService } from './services/gmail'
-import { GOOGLE_SCOPES, exchangeCodeForTokens, fetchGoogleUserInfo } from './services/google'
 import {
   AddTransactionRequest,
   DateRangeRequest,
@@ -18,7 +17,7 @@ import {
   Transaction,
 } from './types'
 import { HttpError, parseJsonBody } from './utils/http'
-import { addHours, nowIso } from './utils/time'
+import { addHours, isPast, nowIso } from './utils/time'
 
 const app = new Hono<{ Bindings: Env }>()
 
@@ -80,27 +79,6 @@ function ensureDateTime(value: string, field: string): string {
   return value
 }
 
-function makeGoogleAuthorizationUrl(env: Env, state: string, promptConsent: boolean): string {
-  const params = new URLSearchParams({
-    client_id: env.GOOGLE_CLIENT_ID,
-    redirect_uri: env.GOOGLE_OAUTH_REDIRECT_URI,
-    response_type: 'code',
-    access_type: 'offline',
-    include_granted_scopes: 'true',
-    state,
-    scope: GOOGLE_SCOPES.join(' '),
-  })
-  if (promptConsent) {
-    params.set('prompt', 'consent')
-  }
-  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`
-}
-
-function randomState(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(16))
-  return [...bytes].map((value) => value.toString(16).padStart(2, '0')).join('')
-}
-
 function parseDateRange(value: string): Date {
   const parsed = new Date(`${value}T00:00:00`)
   if (Number.isNaN(parsed.getTime())) {
@@ -114,64 +92,52 @@ app.get('/', (c) => c.json({ service: 'cloudflare-backend', status: 'ok' }))
 app.get('/health', (c) => c.json({ status: 'ok' }))
 
 app.post('/google/connect-url', async (c) => {
-  const { users } = getRepositories(c.env)
+  const { users, gmail } = getRepositories(c.env)
   const authUser = await requireClerkUser(c)
-  const user = await users.upsertUser(authUser.clerkUserId, authUser.email)
-  const tokenRecord = await users.getGoogleTokens(authUser.clerkUserId)
-  const needsConsent = !tokenRecord?.refresh_token || user.google_auth_status !== 'active'
-  const state = randomState()
-  await users.saveOAuthState(state, authUser.clerkUserId, addHours(nowIso(), 1))
-  return c.json({
-    authorizationUrl: makeGoogleAuthorizationUrl(c.env, state, needsConsent),
-  })
+  await users.upsertUser(authUser.clerkUserId, authUser.email)
+  const state = await gmail.syncGoogleConnection(authUser.clerkUserId)
+
+  if (state.authStatus === 'active') {
+    await gmail.ensureWatch(authUser.clerkUserId)
+    return c.json({
+      status: 'already_connected',
+      message: 'Google access is already available through Clerk.',
+    })
+  }
+
+  throw new HttpError(
+    409,
+    state.authStatus === 'disconnected'
+      ? 'Sign in with Google through Clerk to enable Gmail access.'
+      : 'Reconnect your Google account through Clerk to grant Gmail read access.'
+  )
 })
 
-async function handleGoogleOauthCallback(c: Context<{ Bindings: Env }>) {
-  const code = c.req.query('code')
-  const state = c.req.query('state')
-  if (!code || !state) {
-    throw new HttpError(400, 'Missing OAuth code or state.')
-  }
-
-  const { users, gmail } = getRepositories(c.env)
-  const stateRecord = await users.consumeOAuthState(state)
-  if (!stateRecord || new Date(stateRecord.expires_at).getTime() < Date.now()) {
-    throw new HttpError(400, 'OAuth state is invalid or expired.')
-  }
-
-  const tokens = await exchangeCodeForTokens(c.env, code)
-  const googleUser = await fetchGoogleUserInfo(tokens.access_token)
-  await users.saveGoogleTokens(stateRecord.clerk_user_id, {
-    accessToken: tokens.access_token,
-    refreshToken: tokens.refresh_token ?? null,
-    tokenExpiryAt: tokens.token_expiry_at,
-    scopes: (tokens.scope ?? GOOGLE_SCOPES.join(' ')).split(' '),
-    authTimestamp: tokens.auth_timestamp,
-    lastRefreshAt: null,
-    lastRefreshError: null,
-  })
-  await users.setGoogleAuthStatus(stateRecord.clerk_user_id, {
-    authStatus: 'active',
-    googleEmail: googleUser.email,
-    googleConnectedAt: tokens.auth_timestamp,
-  })
-  await gmail.createWatch(stateRecord.clerk_user_id)
-
-  const redirect = new URL(c.env.FRONTEND_ORIGIN)
-  redirect.searchParams.set('google', 'connected')
-  return c.redirect(redirect.toString())
-}
-
-app.get('/google/oauth/callback', handleGoogleOauthCallback)
-app.get('/oauth2callback', handleGoogleOauthCallback)
-
 app.get('/token-status', async (c) => {
-  const { users } = getRepositories(c.env)
+  const { users, gmail } = getRepositories(c.env)
   const authUser = await requireClerkUser(c)
   const user = await users.upsertUser(authUser.clerkUserId, authUser.email)
-  const token = await users.getGoogleTokens(authUser.clerkUserId)
-  const watch = await users.getWatchStateByClerkId(authUser.clerkUserId)
-  if (!token) {
+  const state = await gmail.syncGoogleConnection(authUser.clerkUserId)
+
+  let watch = await users.getWatchStateByClerkId(authUser.clerkUserId)
+  if (
+    state.authStatus === 'active' &&
+    (!watch || watch.status !== 'active' || !watch.watch_expiration_at || isPast(watch.watch_expiration_at))
+  ) {
+    try {
+      await gmail.ensureWatch(authUser.clerkUserId)
+      watch = await users.getWatchStateByClerkId(authUser.clerkUserId)
+    } catch (error) {
+      await users.setGoogleAuthStatus(authUser.clerkUserId, {
+        authStatus: /reauth/i.test(error instanceof Error ? error.message : '') ? 'reauth_required' : 'error',
+        googleEmail: state.googleEmail,
+      })
+      watch = await users.getWatchStateByClerkId(authUser.clerkUserId)
+    }
+  }
+
+  const freshUser = (await users.getUserByClerkId(authUser.clerkUserId)) ?? user
+  if (state.authStatus === 'disconnected') {
     return c.json({
       user_id: authUser.clerkUserId,
       authenticated: false,
@@ -179,36 +145,38 @@ app.get('/token-status', async (c) => {
       expires_at: null,
       hours_remaining: 0,
       needs_reauth: true,
-      message: 'Google not connected',
+      message: 'Sign in with Google through Clerk to enable Gmail access.',
       google_email: null,
       auth_status: 'disconnected',
       watch_expires_at: null,
       last_sync_at: null,
-      reauth_reason: 'google_not_connected',
+      reauth_reason: state.reauthReason,
     })
   }
 
-  const expiresAt = watch?.watch_expiration_at ?? token.token_expiry_at
+  const expiresAt = watch?.watch_expiration_at ?? null
   const hoursRemaining = expiresAt ? Math.max(0, (new Date(expiresAt).getTime() - Date.now()) / 3_600_000) : 0
-  const needsReauth = user.google_auth_status === 'reauth_required' || user.google_auth_status === 'disconnected'
+  const needsReauth = freshUser.google_auth_status === 'reauth_required' || freshUser.google_auth_status === 'disconnected'
   return c.json({
     user_id: authUser.clerkUserId,
-    authenticated: user.google_auth_status === 'active',
-    auth_timestamp: token.auth_timestamp,
+    authenticated: freshUser.google_auth_status === 'active',
+    auth_timestamp: freshUser.google_connected_at,
     expires_at: expiresAt,
     hours_remaining: Number(hoursRemaining.toFixed(2)),
     needs_reauth: needsReauth,
     message:
-      user.google_auth_status === 'active'
-        ? 'Google connection active'
-        : user.google_auth_status === 'reauth_required'
-          ? 'Manual re-authentication required'
-          : 'Google not connected',
-    google_email: user.google_email,
-    auth_status: user.google_auth_status,
+      freshUser.google_auth_status === 'active'
+        ? 'Google sign-in is active through Clerk.'
+        : freshUser.google_auth_status === 'reauth_required'
+          ? 'Reconnect Google in Clerk to grant Gmail access.'
+          : freshUser.google_auth_status === 'error'
+            ? 'Google access is linked, but Gmail watch setup failed.'
+            : 'Google not connected',
+    google_email: freshUser.google_email,
+    auth_status: freshUser.google_auth_status,
     watch_expires_at: watch?.watch_expiration_at ?? null,
     last_sync_at: watch?.last_sync_at ?? null,
-    reauth_reason: needsReauth ? token.last_refresh_error ?? 'manual_reauth_required' : null,
+    reauth_reason: needsReauth ? state.reauthReason ?? watch?.last_error ?? 'manual_reauth_required' : watch?.last_error ?? null,
   })
 })
 

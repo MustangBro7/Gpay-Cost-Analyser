@@ -2,9 +2,9 @@
 
 import * as React from 'react'
 import { AlertTriangle, LogIn, Clock } from 'lucide-react'
+import { useClerk } from '@clerk/nextjs'
 import { Button } from './button'
 import { useTokenStatus } from '@/hooks/useTokenStatus'
-import { useAuthedFetch } from '@/lib/useAuthedFetch'
 
 interface ReauthWarningProps {
   className?: string
@@ -28,8 +28,7 @@ function formatTimeRemaining(hours: number): string {
 
 export function ReauthWarning({ className, userId, userEmail }: ReauthWarningProps) {
   const { needsReauth, urgentUser, isLoading } = useTokenStatus({ pollInterval: 30000 })
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL
-  const authedFetch = useAuthedFetch()
+  const clerk = useClerk()
   const [isRedirecting, setIsRedirecting] = React.useState(false)
 
   // Don't render anything if no re-auth needed or still loading
@@ -41,21 +40,12 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
   const timeRemaining = formatTimeRemaining(urgentUser.hours_remaining)
 
   const handleReauth = async () => {
-    if (!apiUrl || isRedirecting) return
+    if (isRedirecting) return
 
     setIsRedirecting(true)
     try {
-      const response = await authedFetch(`${apiUrl}/google/connect-url`, {
-        method: 'POST',
-      })
-      if (!response.ok) {
-        throw new Error(`Failed to create Google connect URL: ${response.status}`)
-      }
-      const data = await response.json() as { authorizationUrl?: string }
-      if (!data.authorizationUrl) {
-        throw new Error('Google connect URL missing from response.')
-      }
-      window.location.href = data.authorizationUrl
+      await clerk.signOut()
+      clerk.openSignIn()
     } catch (error) {
       console.error('Failed to start Google re-authentication:', error)
       setIsRedirecting(false)
@@ -78,7 +68,7 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
               </div>
               <div>
                 <h2 className="text-lg font-semibold text-foreground">
-                  {isExpired ? 'Session Expired' : 'Session Expiring Soon'}
+                  {isExpired ? 'Google Access Required' : 'Google Access Needs Attention'}
                 </h2>
                 <p className="text-sm text-muted-foreground">
                   {urgentUser.google_email || userEmail || userId || urgentUser.user_id}
@@ -91,8 +81,8 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
           <div className="px-6 py-5 space-y-4">
             <p className="text-muted-foreground">
               {isExpired 
-                ? 'Your Google connection needs to be restored before email monitoring can continue.'
-                : 'Your Google connection needs attention. Re-authenticate to restore email monitoring.'
+                ? 'Sign in with Google again through Clerk before email monitoring can continue.'
+                : 'Your Google account needs to be reconnected in Clerk so Gmail monitoring can continue.'
               }
             </p>
             
@@ -109,7 +99,7 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
             
             {/* Warning note */}
             <p className="text-xs text-muted-foreground/80 italic">
-              Note: Transaction monitoring is paused until you re-authenticate. You may miss new transactions.
+              Note: Transaction monitoring is paused until your Google sign-in includes Gmail read access.
             </p>
           </div>
           
@@ -122,7 +112,7 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
               disabled={isRedirecting}
             >
               <LogIn className="w-4 h-4" />
-              {isRedirecting ? 'Redirecting...' : 'Re-authenticate Now'}
+              {isRedirecting ? 'Opening sign-in...' : 'Sign In With Google Again'}
             </Button>
           </div>
         </div>

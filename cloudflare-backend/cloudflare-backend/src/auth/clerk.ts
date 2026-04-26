@@ -3,6 +3,8 @@ import { Context } from 'hono'
 import { AuthenticatedUser, Env } from '../types'
 import { HttpError } from '../utils/http'
 
+export const GMAIL_READONLY_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly'
+
 function getAuthorizedParties(env: Env): string[] {
   const configured = env.FRONTEND_ORIGINS ?? env.FRONTEND_ORIGIN
   return configured
@@ -11,11 +13,66 @@ function getAuthorizedParties(env: Env): string[] {
     .filter(Boolean)
 }
 
-export async function requireClerkUser(c: Context<{ Bindings: Env }>): Promise<AuthenticatedUser> {
-  const clerkClient = createClerkClient({
-    secretKey: c.env.CLERK_SECRET_KEY,
-    publishableKey: c.env.CLERK_PUBLISHABLE_KEY,
+export function getClerkClient(env: Env) {
+  return createClerkClient({
+    secretKey: env.CLERK_SECRET_KEY,
+    publishableKey: env.CLERK_PUBLISHABLE_KEY,
   })
+}
+
+export function parseScopeList(value?: string | string[] | null): string[] {
+  if (!value) {
+    return []
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => entry.trim()).filter(Boolean)
+  }
+  return value
+    .split(/[\s,]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+}
+
+export async function getGoogleAccountStatus(env: Env, clerkUserId: string): Promise<{
+  googleEmail: string | null
+  approvedScopes: string[]
+  hasGoogleAccount: boolean
+  hasGmailScope: boolean
+}> {
+  const clerkClient = getClerkClient(env)
+  const user = await clerkClient.users.getUser(clerkUserId)
+  const googleAccount = user.externalAccounts.find((account) => account.provider === 'google') ?? null
+  const approvedScopes = parseScopeList(googleAccount?.approvedScopes ?? null)
+
+  return {
+    googleEmail: googleAccount?.emailAddress ?? null,
+    approvedScopes,
+    hasGoogleAccount: Boolean(googleAccount),
+    hasGmailScope: approvedScopes.includes(GMAIL_READONLY_SCOPE),
+  }
+}
+
+export async function getGoogleOauthAccessToken(env: Env, clerkUserId: string): Promise<{
+  token: string | null
+  expiresAt: number | null
+  scopes: string[]
+}> {
+  const clerkClient = getClerkClient(env)
+  const response = await clerkClient.users.getUserOauthAccessToken(clerkUserId, 'google')
+  const scopedToken =
+    response.data.find((entry) => (entry.scopes ?? []).includes(GMAIL_READONLY_SCOPE)) ??
+    response.data[0] ??
+    null
+
+  return {
+    token: scopedToken?.token ?? null,
+    expiresAt: scopedToken?.expiresAt ?? null,
+    scopes: scopedToken?.scopes ?? [],
+  }
+}
+
+export async function requireClerkUser(c: Context<{ Bindings: Env }>): Promise<AuthenticatedUser> {
+  const clerkClient = getClerkClient(c.env)
 
   const requestState = await clerkClient.authenticateRequest(c.req.raw, {
     ...(c.env.CLERK_JWT_KEY ? { jwtKey: c.env.CLERK_JWT_KEY } : {}),
