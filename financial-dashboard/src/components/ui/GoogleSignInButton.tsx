@@ -21,6 +21,7 @@ export function GoogleSignInButton() {
         redirectUrlComplete: '/',
         continueSignIn: true,
         continueSignUp: true,
+        oidcPrompt: 'consent',
       })
     } catch (error) {
       console.error('Failed to start Google sign-in:', error)

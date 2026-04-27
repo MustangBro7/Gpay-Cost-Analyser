@@ -32,6 +32,12 @@ function getCleanRedirectUrl(): string {
   return url.toString()
 }
 
+function getSsoCallbackUrl(): string {
+  const callbackUrl = new URL('/sso-callback', window.location.origin)
+  callbackUrl.searchParams.set('redirect_url', getCleanRedirectUrl())
+  return callbackUrl.toString()
+}
+
 export function ReauthWarning({ className, userId, userEmail }: ReauthWarningProps) {
   const { needsReauth, urgentUser, isLoading } = useTokenStatus({ pollInterval: 30000 })
   const { isLoaded, signIn } = useSignIn()
@@ -53,7 +59,7 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
         await googleAccount.reauthorize({
           additionalScopes: ['https://www.googleapis.com/auth/gmail.readonly'],
           oidcPrompt: 'consent',
-          redirectUrl: getCleanRedirectUrl(),
+          redirectUrl: getSsoCallbackUrl(),
         })
         return
       }

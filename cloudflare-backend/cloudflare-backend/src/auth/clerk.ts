@@ -44,8 +44,15 @@ export async function getGoogleAccountStatus(env: Env, clerkUserId: string): Pro
   const user = await clerkClient.users.getUser(clerkUserId)
   const googleAccount = user.externalAccounts.find((account) => account.provider === 'google') ?? null
   const approvedScopes = parseScopeList(googleAccount?.approvedScopes ?? null)
-  const oauthAccessTokens = await clerkClient.users.getUserOauthAccessToken(clerkUserId, 'google')
-  const tokenScopes = [...new Set(oauthAccessTokens.data.flatMap((entry) => entry.scopes ?? []))]
+  let tokenScopes: string[] = []
+
+  try {
+    const oauthAccessTokens = await clerkClient.users.getUserOauthAccessToken(clerkUserId, 'google')
+    tokenScopes = [...new Set(oauthAccessTokens.data.flatMap((entry) => entry.scopes ?? []))]
+  } catch (error) {
+    console.warn('Unable to fetch Clerk Google OAuth access tokens while checking account status:', error)
+  }
+
   const combinedScopes = new Set([...approvedScopes, ...tokenScopes])
 
   return {
@@ -63,16 +70,25 @@ export async function getGoogleOauthAccessToken(env: Env, clerkUserId: string): 
   scopes: string[]
 }> {
   const clerkClient = getClerkClient(env)
-  const response = await clerkClient.users.getUserOauthAccessToken(clerkUserId, 'google')
-  const scopedToken =
-    response.data.find((entry) => (entry.scopes ?? []).includes(GMAIL_READONLY_SCOPE)) ??
-    response.data[0] ??
-    null
+  try {
+    const response = await clerkClient.users.getUserOauthAccessToken(clerkUserId, 'google')
+    const scopedToken =
+      response.data.find((entry) => (entry.scopes ?? []).includes(GMAIL_READONLY_SCOPE)) ??
+      response.data[0] ??
+      null
 
-  return {
-    token: scopedToken?.token ?? null,
-    expiresAt: scopedToken?.expiresAt ?? null,
-    scopes: scopedToken?.scopes ?? [],
+    return {
+      token: scopedToken?.token ?? null,
+      expiresAt: scopedToken?.expiresAt ?? null,
+      scopes: scopedToken?.scopes ?? [],
+    }
+  } catch (error) {
+    console.warn('Unable to fetch Clerk Google OAuth access token:', error)
+    return {
+      token: null,
+      expiresAt: null,
+      scopes: [],
+    }
   }
 }
 
