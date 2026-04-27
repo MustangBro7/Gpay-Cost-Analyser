@@ -53,7 +53,10 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
 
     setIsRedirecting(true)
     try {
-      const googleAccount = user?.externalAccounts?.find((account) => account.provider === 'google')
+      const googleAccount = user?.externalAccounts?.find((account) => {
+        const provider = String(account.provider)
+        return provider === 'google' || provider === 'oauth_google'
+      })
 
       if (googleAccount) {
         await googleAccount.reauthorize({

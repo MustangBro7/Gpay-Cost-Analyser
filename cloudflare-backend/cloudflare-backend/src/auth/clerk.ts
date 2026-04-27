@@ -4,6 +4,8 @@ import { AuthenticatedUser, Env } from '../types'
 import { HttpError } from '../utils/http'
 
 export const GMAIL_READONLY_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly'
+const CLERK_GOOGLE_ACCOUNT_PROVIDERS = ['oauth_google', 'google'] as const
+const CLERK_GOOGLE_TOKEN_PROVIDERS = ['oauth_google', 'google'] as const
 
 function getAuthorizedParties(env: Env): string[] {
   const configured = env.FRONTEND_ORIGINS ?? env.FRONTEND_ORIGIN
@@ -33,6 +35,41 @@ export function parseScopeList(value?: string | string[] | null): string[] {
     .filter(Boolean)
 }
 
+async function getClerkGoogleOauthAccessTokens(env: Env, clerkUserId: string) {
+  const results: Array<{ token: string | null; expiresAt: number | null; scopes: string[] }> = []
+
+  for (const provider of CLERK_GOOGLE_TOKEN_PROVIDERS) {
+    try {
+      const response = await fetch(`https://api.clerk.com/v1/users/${clerkUserId}/oauth_access_tokens/${provider}`, {
+        headers: {
+          Authorization: `Bearer ${env.CLERK_SECRET_KEY}`,
+        },
+      })
+      if (!response.ok) {
+        throw new Error(`Clerk returned ${response.status} for provider ${provider}`)
+      }
+
+      const data = (await response.json()) as Array<{
+        token?: string | null
+        expires_at?: number | null
+        scopes?: string[]
+      }>
+
+      for (const entry of data) {
+        results.push({
+          token: entry.token ?? null,
+          expiresAt: entry.expires_at ?? null,
+          scopes: entry.scopes ?? [],
+        })
+      }
+    } catch (error) {
+      console.warn(`Unable to fetch Clerk Google OAuth access tokens for provider ${provider}:`, error)
+    }
+  }
+
+  return results
+}
+
 export async function getGoogleAccountStatus(env: Env, clerkUserId: string): Promise<{
   googleEmail: string | null
   approvedScopes: string[]
@@ -42,16 +79,12 @@ export async function getGoogleAccountStatus(env: Env, clerkUserId: string): Pro
 }> {
   const clerkClient = getClerkClient(env)
   const user = await clerkClient.users.getUser(clerkUserId)
-  const googleAccount = user.externalAccounts.find((account) => account.provider === 'google') ?? null
+  const googleAccount =
+    user.externalAccounts.find((account) => CLERK_GOOGLE_ACCOUNT_PROVIDERS.includes(account.provider as 'google' | 'oauth_google')) ??
+    null
   const approvedScopes = parseScopeList(googleAccount?.approvedScopes ?? null)
-  let tokenScopes: string[] = []
-
-  try {
-    const oauthAccessTokens = await clerkClient.users.getUserOauthAccessToken(clerkUserId, 'google')
-    tokenScopes = [...new Set(oauthAccessTokens.data.flatMap((entry) => entry.scopes ?? []))]
-  } catch (error) {
-    console.warn('Unable to fetch Clerk Google OAuth access tokens while checking account status:', error)
-  }
+  const oauthAccessTokens = await getClerkGoogleOauthAccessTokens(env, clerkUserId)
+  const tokenScopes = [...new Set(oauthAccessTokens.flatMap((entry) => entry.scopes ?? []))]
 
   const combinedScopes = new Set([...approvedScopes, ...tokenScopes])
 
@@ -69,12 +102,11 @@ export async function getGoogleOauthAccessToken(env: Env, clerkUserId: string): 
   expiresAt: number | null
   scopes: string[]
 }> {
-  const clerkClient = getClerkClient(env)
   try {
-    const response = await clerkClient.users.getUserOauthAccessToken(clerkUserId, 'google')
+    const oauthAccessTokens = await getClerkGoogleOauthAccessTokens(env, clerkUserId)
     const scopedToken =
-      response.data.find((entry) => (entry.scopes ?? []).includes(GMAIL_READONLY_SCOPE)) ??
-      response.data[0] ??
+      oauthAccessTokens.find((entry) => entry.scopes.includes(GMAIL_READONLY_SCOPE)) ??
+      oauthAccessTokens[0] ??
       null
 
     return {

@@ -65,6 +65,19 @@ export class UserRepository {
       googleConnectedAt?: string | null
     }
   ): Promise<void> {
+    if (updates.googleEmail) {
+      await this.db
+        .prepare(
+          `UPDATE users
+           SET google_email = NULL,
+               updated_at = ?
+           WHERE google_email = ?
+             AND clerk_user_id != ?`
+        )
+        .bind(nowIso(), updates.googleEmail, clerkUserId)
+        .run()
+    }
+
     await this.db
       .prepare(
         `UPDATE users
