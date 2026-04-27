@@ -13,8 +13,9 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { formatLocalDate } from "@/lib/utils"
-import { useAuthedFetch } from "@/lib/useAuthedFetch"
+import { isAuthTokenUnavailableError, useAuthedFetch } from "@/lib/useAuthedFetch"
 import { Loader2 } from "lucide-react"
+import { useAuth } from "@clerk/nextjs"
 
 // Helper function to get start and end of current month
 const getCurrentMonthRange = () => {
@@ -79,7 +80,9 @@ export function DateRangeForm({
   const [isLoading, setIsLoading] = React.useState(false)
   const [isPopoverOpen, setIsPopoverOpen] = React.useState(false)
   const isFirstRender = React.useRef(true)
+  const inFlightRef = React.useRef(false)
   const authedFetch = useAuthedFetch()
+  const { isLoaded, isSignedIn } = useAuth()
 
   // Fetch data whenever date range changes (after both from and to are selected)
   React.useEffect(() => {
@@ -92,12 +95,16 @@ export function DateRangeForm({
     const fromDate = date?.from
     const toDate = date?.to
     
-    if (!fromDate || !toDate || isLoading) return
+    if (!isLoaded || !isSignedIn || !fromDate || !toDate || inFlightRef.current) return
 
     const fetchData = async () => {
+      inFlightRef.current = true
       setIsLoading(true)
       try {
         const website_url = process.env.NEXT_PUBLIC_API_URL
+        if (!website_url) {
+          return
+        }
         const response = await authedFetch(`${website_url}/daterange`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -105,19 +112,38 @@ export function DateRangeForm({
             startDate: formatLocalDate(fromDate),
             endDate: formatLocalDate(toDate),
           })
+        }).catch((error) => {
+          if (isAuthTokenUnavailableError(error)) {
+            onDataFetched([], { from: fromDate, to: toDate })
+            return null
+          }
+          throw error
         })
+
+        if (!response) {
+          return
+        }
+
+        if (!response.ok) {
+          if (response.status === 401) {
+            onDataFetched([], { from: fromDate, to: toDate })
+            return
+          }
+          throw new Error(`Failed to fetch transactions: ${response.status}`)
+        }
       
-        const data = await response.json()
-        onDataFetched(data, { from: fromDate, to: toDate })
+        const payload = await response.json()
+        onDataFetched(Array.isArray(payload) ? payload : [], { from: fromDate, to: toDate })
       } catch (error) {
         console.error('Error fetching data:', error)
       } finally {
+        inFlightRef.current = false
         setIsLoading(false)
       }
     }
 
     fetchData()
-  }, [authedFetch, date?.from?.getTime(), date?.to?.getTime()])
+  }, [authedFetch, date?.from?.getTime(), date?.to?.getTime(), isLoaded, isSignedIn, onDataFetched])
 
   const handlePresetSelect = (range: DateRange) => {
     setDate(range)

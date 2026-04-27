@@ -15,9 +15,13 @@ import { ReauthWarning } from "@/components/ui/ReauthWarning"
 import { Button } from "@/components/ui/button"
 import { GoogleSignInButton } from "@/components/ui/GoogleSignInButton"
 import { formatLocalDate } from "@/lib/utils"
-import { useAuthedFetch } from "@/lib/useAuthedFetch"
+import { isAuthTokenUnavailableError, useAuthedFetch } from "@/lib/useAuthedFetch"
 import { SignedIn, SignedOut, useUser } from "@clerk/nextjs"
 import { Plus } from "lucide-react"
+
+function normalizeTransactions(payload: unknown): Transaction[] {
+  return Array.isArray(payload) ? (payload as Transaction[]) : []
+}
 
 export default function Home() {
   const [data, setData] = React.useState<Transaction[]>([])
@@ -27,24 +31,52 @@ export default function Home() {
   const [isAddDialogOpen, setIsAddDialogOpen] = React.useState(false)
   const website_url = process.env.NEXT_PUBLIC_API_URL
   const authedFetch = useAuthedFetch()
-  const { user } = useUser()
+  const { user, isLoaded } = useUser()
 
   const fetchData = React.useCallback(async (range: { from: Date; to: Date }) => {
-    const response = await authedFetch(`${website_url}/daterange`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        startDate: formatLocalDate(range.from),
-        endDate: formatLocalDate(range.to),
-      }),
-    })
-    const data = await response.json()
-    setData(data)
+    if (!website_url) {
+      setData([])
+      setIsInitialLoad(false)
+      return
+    }
+
+    let response: Response
+    try {
+      response = await authedFetch(`${website_url}/daterange`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          startDate: formatLocalDate(range.from),
+          endDate: formatLocalDate(range.to),
+        }),
+      })
+    } catch (error) {
+      if (isAuthTokenUnavailableError(error)) {
+        setData([])
+        return
+      }
+      throw error
+    }
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        setData([])
+        return
+      }
+      throw new Error(`Failed to fetch transactions: ${response.status}`)
+    }
+
+    const payload = await response.json()
+    setData(normalizeTransactions(payload))
     setIsInitialLoad(false)
   }, [authedFetch, website_url])
 
   // Auto-load this month's data on initial page load
   React.useEffect(() => {
+    if (!isLoaded) {
+      return
+    }
+
     if (isInitialLoad && user) {
       const now = new Date()
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -52,15 +84,25 @@ export default function Home() {
       
       const initialRange = { from: startOfMonth, to: endOfMonth }
       setDateRange(initialRange)
-      fetchData(initialRange)
+      fetchData(initialRange).catch((error) => {
+        console.error('Failed to fetch initial transactions:', error)
+        setData([])
+        setIsInitialLoad(false)
+      })
+      return
     }
-  }, [isInitialLoad, fetchData, user])
 
-  const handleDataFetched = (data: Transaction[], range: { from: Date; to: Date }) => {
-    setData(data)
+    if (isInitialLoad && !user) {
+      setData([])
+      setIsInitialLoad(false)
+    }
+  }, [isInitialLoad, fetchData, isLoaded, user])
+
+  const handleDataFetched = React.useCallback((data: Transaction[], range: { from: Date; to: Date }) => {
+    setData(normalizeTransactions(data))
     setDateRange(range)
     setIsInitialLoad(false)
-  }
+  }, [])
 
   const refetch = React.useCallback(() => {
     if (dateRange) fetchData(dateRange)

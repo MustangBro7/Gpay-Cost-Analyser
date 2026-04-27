@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useAuthedFetch } from '@/lib/useAuthedFetch'
+import { useAuth } from '@clerk/nextjs'
+import { isAuthTokenUnavailableError, useAuthedFetch } from '@/lib/useAuthedFetch'
 
 export interface TokenStatus {
   user_id: string
@@ -32,10 +33,25 @@ export function useTokenStatus(options: UseTokenStatusOptions = {}) {
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL
   const authedFetch = useAuthedFetch()
+  const { isLoaded, isSignedIn } = useAuth()
 
   const fetchTokenStatus = useCallback(async () => {
     if (!apiUrl) {
       setError('API URL not configured')
+      setIsLoading(false)
+      return
+    }
+
+    if (!isLoaded) {
+      return
+    }
+
+    if (!isSignedIn) {
+      if (!isMountedRef.current) {
+        return
+      }
+      setTokenStatus(null)
+      setError(null)
       setIsLoading(false)
       return
     }
@@ -49,6 +65,14 @@ export function useTokenStatus(options: UseTokenStatusOptions = {}) {
       const response = await authedFetch(`${apiUrl}/token-status`)
       
       if (!response.ok) {
+        if (response.status === 401) {
+          if (!isMountedRef.current) {
+            return
+          }
+          setTokenStatus(null)
+          setError(null)
+          return
+        }
         throw new Error(`HTTP error! status: ${response.status}`)
       }
       
@@ -62,6 +86,11 @@ export function useTokenStatus(options: UseTokenStatusOptions = {}) {
       if (!isMountedRef.current) {
         return
       }
+      if (isAuthTokenUnavailableError(err)) {
+        setTokenStatus(null)
+        setError(null)
+        return
+      }
       console.error('Failed to fetch token status:', err)
       setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
@@ -70,7 +99,7 @@ export function useTokenStatus(options: UseTokenStatusOptions = {}) {
         setIsLoading(false)
       }
     }
-  }, [apiUrl, authedFetch])
+  }, [apiUrl, authedFetch, isLoaded, isSignedIn])
 
   useEffect(() => {
     isMountedRef.current = true

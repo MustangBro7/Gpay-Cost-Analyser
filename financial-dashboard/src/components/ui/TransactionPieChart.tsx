@@ -92,8 +92,13 @@ export function PieChartComponent({
   data: { Classification: string; Amount: string; Receiver: string; Date: string }[]
   refetch: () => void
 }){
+  const safeData = React.useMemo(
+    () => (Array.isArray(data) ? data : []),
+    [data]
+  )
+
   const parsedData = React.useMemo(() => {
-    const grouped = data.reduce((acc, curr) => {
+    const grouped = safeData.reduce((acc, curr) => {
       const key = curr.Classification
       const amt = parseFloat(curr.Amount.replace(/,/g, ""))
       acc[key] = (acc[key] || 0) + amt
@@ -104,7 +109,7 @@ export function PieChartComponent({
       classification,
       amount,
     }))
-  }, [data])
+  }, [safeData])
 
   const total = parsedData.reduce((acc, curr) => acc + curr.amount, 0)
 
@@ -138,8 +143,8 @@ export function PieChartComponent({
 
   const filteredTransactions = React.useMemo(() => {
     if (!selected) return []
-    return data.filter((d) => d.Classification === selected.classification)
-  }, [selected, data])
+    return safeData.filter((d) => d.Classification === selected.classification)
+  }, [selected, safeData])
   {filteredTransactions.map((tx, idx) => (
     <TransactionItem key={idx} tx={tx} refetch={refetch} />
   ))}
