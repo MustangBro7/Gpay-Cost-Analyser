@@ -133,8 +133,14 @@ app.get('/token-status', async (c) => {
       await gmail.ensureWatch(authUser.clerkUserId)
       watch = await users.getWatchStateByClerkId(authUser.clerkUserId)
     } catch (error) {
+      const message = error instanceof Error ? error.message : ''
+      const requiresReauth =
+        error instanceof HttpError
+          ? error.status === 401 || /reauth|oauth token|gmail readonly scope/i.test(message)
+          : /reauth|oauth token|gmail readonly scope/i.test(message)
+
       await users.setGoogleAuthStatus(authUser.clerkUserId, {
-        authStatus: /reauth/i.test(error instanceof Error ? error.message : '') ? 'reauth_required' : 'error',
+        authStatus: requiresReauth ? 'reauth_required' : 'error',
         googleEmail: state.googleEmail,
       })
       watch = await users.getWatchStateByClerkId(authUser.clerkUserId)
