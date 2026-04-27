@@ -102,15 +102,20 @@ app.post('/google/connect-url', async (c) => {
     return c.json({
       status: 'already_connected',
       message: 'Google access is already available through Clerk.',
+      authorizationUrl: c.env.FRONTEND_ORIGIN,
     })
   }
 
-  throw new HttpError(
-    409,
-    state.authStatus === 'disconnected'
-      ? 'Sign in with Google through Clerk to enable Gmail access.'
-      : 'Reconnect your Google account through Clerk to grant Gmail read access.'
-  )
+  const redirect = new URL(c.env.FRONTEND_ORIGIN)
+  redirect.searchParams.set('reauth', 'google')
+  return c.json({
+    status: state.authStatus,
+    authorizationUrl: redirect.toString(),
+    message:
+      state.authStatus === 'disconnected'
+        ? 'Sign in with Google through Clerk to enable Gmail access.'
+        : 'Reconnect your Google account through Clerk to grant Gmail read access.',
+  })
 })
 
 app.get('/token-status', async (c) => {

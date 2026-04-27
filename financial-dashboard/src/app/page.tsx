@@ -13,9 +13,10 @@ import { ClassificationFilter } from "@/components/ui/ClassificationFilter"
 import { AddTransactionDialog } from "@/components/ui/AddTransactionDialog"
 import { ReauthWarning } from "@/components/ui/ReauthWarning"
 import { Button } from "@/components/ui/button"
+import { GoogleSignInButton } from "@/components/ui/GoogleSignInButton"
 import { formatLocalDate } from "@/lib/utils"
 import { useAuthedFetch } from "@/lib/useAuthedFetch"
-import { SignedIn, SignedOut, SignInButton, useUser } from "@clerk/nextjs"
+import { SignedIn, SignedOut, useUser } from "@clerk/nextjs"
 import { Plus } from "lucide-react"
 
 export default function Home() {
@@ -77,9 +78,7 @@ export default function Home() {
         <main className="min-h-screen flex items-center justify-center px-4">
           <div className="text-center space-y-4">
             <h1 className="text-2xl font-semibold">Sign in to continue</h1>
-            <SignInButton mode="modal">
-              <Button>Sign in</Button>
-            </SignInButton>
+            <GoogleSignInButton />
           </div>
         </main>
       </SignedOut>

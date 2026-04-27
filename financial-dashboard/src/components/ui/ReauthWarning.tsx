@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { AlertTriangle, LogIn, Clock } from 'lucide-react'
-import { useClerk } from '@clerk/nextjs'
+import { useSignIn, useUser } from '@clerk/nextjs'
 import { Button } from './button'
 import { useTokenStatus } from '@/hooks/useTokenStatus'
 
@@ -26,10 +26,18 @@ function formatTimeRemaining(hours: number): string {
   return `${wholeHours}h ${minutes}m`
 }
 
+function getCleanRedirectUrl(): string {
+  const url = new URL(window.location.href)
+  url.searchParams.delete('reauth')
+  return url.toString()
+}
+
 export function ReauthWarning({ className, userId, userEmail }: ReauthWarningProps) {
   const { needsReauth, urgentUser, isLoading } = useTokenStatus({ pollInterval: 30000 })
-  const clerk = useClerk()
+  const { isLoaded, signIn } = useSignIn()
+  const { user } = useUser()
   const [isRedirecting, setIsRedirecting] = React.useState(false)
+  const hasAutoTriggeredRef = React.useRef(false)
 
   // Don't render anything if no re-auth needed or still loading
   if (isLoading || !needsReauth || !urgentUser) {
@@ -44,13 +52,48 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
 
     setIsRedirecting(true)
     try {
-      await clerk.signOut()
-      clerk.openSignIn()
+      const googleAccount = user?.externalAccounts?.find((account) => account.provider === 'google')
+
+      if (googleAccount) {
+        await googleAccount.reauthorize({
+          additionalScopes: ['https://www.googleapis.com/auth/gmail.readonly'],
+          oidcPrompt: 'consent',
+          redirectUrl: getCleanRedirectUrl(),
+        })
+        return
+      }
+
+      if (!isLoaded || !signIn) {
+        throw new Error('Clerk sign-in is not ready yet.')
+      }
+
+      await signIn.authenticateWithRedirect({
+        strategy: 'oauth_google',
+        redirectUrl: '/sso-callback',
+        redirectUrlComplete: getCleanRedirectUrl(),
+        continueSignIn: true,
+        continueSignUp: true,
+        oidcPrompt: 'consent',
+      })
     } catch (error) {
       console.error('Failed to start Google re-authentication:', error)
       setIsRedirecting(false)
     }
   }
+
+  React.useEffect(() => {
+    if (hasAutoTriggeredRef.current || isLoading || !needsReauth || isRedirecting) {
+      return
+    }
+
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('reauth') !== 'google') {
+      return
+    }
+
+    hasAutoTriggeredRef.current = true
+    void handleReauth()
+  }, [isLoading, needsReauth, isRedirecting])
 
   return (
     <div className={`fixed inset-0 z-[100] flex items-center justify-center ${className || ''}`}>

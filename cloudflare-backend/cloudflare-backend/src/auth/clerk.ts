@@ -36,6 +36,7 @@ export function parseScopeList(value?: string | string[] | null): string[] {
 export async function getGoogleAccountStatus(env: Env, clerkUserId: string): Promise<{
   googleEmail: string | null
   approvedScopes: string[]
+  tokenScopes: string[]
   hasGoogleAccount: boolean
   hasGmailScope: boolean
 }> {
@@ -43,12 +44,16 @@ export async function getGoogleAccountStatus(env: Env, clerkUserId: string): Pro
   const user = await clerkClient.users.getUser(clerkUserId)
   const googleAccount = user.externalAccounts.find((account) => account.provider === 'google') ?? null
   const approvedScopes = parseScopeList(googleAccount?.approvedScopes ?? null)
+  const oauthAccessTokens = await clerkClient.users.getUserOauthAccessToken(clerkUserId, 'google')
+  const tokenScopes = [...new Set(oauthAccessTokens.data.flatMap((entry) => entry.scopes ?? []))]
+  const combinedScopes = new Set([...approvedScopes, ...tokenScopes])
 
   return {
     googleEmail: googleAccount?.emailAddress ?? null,
     approvedScopes,
+    tokenScopes,
     hasGoogleAccount: Boolean(googleAccount),
-    hasGmailScope: approvedScopes.includes(GMAIL_READONLY_SCOPE),
+    hasGmailScope: combinedScopes.has(GMAIL_READONLY_SCOPE),
   }
 }
 
