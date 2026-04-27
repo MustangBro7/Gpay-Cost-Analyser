@@ -38,14 +38,9 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
   const { user } = useUser()
   const [isRedirecting, setIsRedirecting] = React.useState(false)
   const hasAutoTriggeredRef = React.useRef(false)
-
-  // Don't render anything if no re-auth needed or still loading
-  if (isLoading || !needsReauth || !urgentUser) {
-    return null
-  }
-
-  const isExpired = urgentUser.hours_remaining <= 0
-  const timeRemaining = formatTimeRemaining(urgentUser.hours_remaining)
+  const shouldRender = !isLoading && needsReauth && Boolean(urgentUser)
+  const isExpired = urgentUser ? urgentUser.hours_remaining <= 0 : false
+  const timeRemaining = urgentUser ? formatTimeRemaining(urgentUser.hours_remaining) : ''
 
   const handleReauth = async () => {
     if (isRedirecting) return
@@ -82,7 +77,7 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
   }
 
   React.useEffect(() => {
-    if (hasAutoTriggeredRef.current || isLoading || !needsReauth || isRedirecting) {
+    if (!shouldRender || hasAutoTriggeredRef.current || isRedirecting) {
       return
     }
 
@@ -93,7 +88,11 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
 
     hasAutoTriggeredRef.current = true
     void handleReauth()
-  }, [isLoading, needsReauth, isRedirecting])
+  }, [isRedirecting, shouldRender])
+
+  if (!shouldRender || !urgentUser) {
+    return null
+  }
 
   return (
     <div className={`fixed inset-0 z-[100] flex items-center justify-center ${className || ''}`}>
