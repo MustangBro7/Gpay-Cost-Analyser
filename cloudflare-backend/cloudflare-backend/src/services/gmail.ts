@@ -181,10 +181,9 @@ export class GmailService {
       return { processedMessages: 0 }
     }
 
-    await this.users.markWatchNotification(user.clerk_user_id, payload.historyId)
-
     const watch = await this.users.getWatchStateByClerkId(user.clerk_user_id)
     const startHistoryId = watch?.last_history_id || payload.historyId
+    await this.users.markWatchNotification(user.clerk_user_id)
 
     try {
       const messageIds = await this.collectChangedMessageIds(user.clerk_user_id, startHistoryId)

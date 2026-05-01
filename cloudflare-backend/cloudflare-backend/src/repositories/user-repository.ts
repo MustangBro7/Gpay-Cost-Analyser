@@ -238,16 +238,15 @@ export class UserRepository {
     )
   }
 
-  async markWatchNotification(clerkUserId: string, historyId: string): Promise<void> {
+  async markWatchNotification(clerkUserId: string): Promise<void> {
     await this.db
       .prepare(
         `UPDATE gmail_watch_state
          SET last_notification_at = ?,
-             last_history_id = ?,
              last_error = NULL
          WHERE clerk_user_id = ?`
       )
-      .bind(nowIso(), historyId, clerkUserId)
+      .bind(nowIso(), clerkUserId)
       .run()
   }
 
