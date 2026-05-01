@@ -22,6 +22,22 @@ export function getClerkClient(env: Env) {
   })
 }
 
+function isPlaceholderEmail(email: string | null | undefined): boolean {
+  return Boolean(email && email.endsWith('@placeholder.local'))
+}
+
+async function getPrimaryClerkEmail(env: Env, clerkUserId: string): Promise<string | null> {
+  try {
+    const clerkClient = getClerkClient(env)
+    const user = await clerkClient.users.getUser(clerkUserId)
+    const primaryEmail = user.emailAddresses.find((entry) => entry.id === user.primaryEmailAddressId) ?? user.emailAddresses[0]
+    return primaryEmail?.emailAddress ?? null
+  } catch (error) {
+    console.warn('Unable to fetch Clerk primary email:', error)
+    return null
+  }
+}
+
 export function parseScopeList(value?: string | string[] | null): string[] {
   if (!value) {
     return []
@@ -141,12 +157,16 @@ export async function requireClerkUser(c: Context<{ Bindings: Env }>): Promise<A
     throw new HttpError(401, 'Authenticated Clerk user is missing a user id.')
   }
 
-  const email =
+  const claimEmail =
     auth.sessionClaims?.email ||
     (Array.isArray(auth.sessionClaims?.email_addresses) ? auth.sessionClaims?.email_addresses[0] : null)
+  const clerkEmail =
+    typeof claimEmail === 'string' && !isPlaceholderEmail(claimEmail)
+      ? claimEmail
+      : (await getPrimaryClerkEmail(c.env, auth.userId)) ?? null
 
   return {
     clerkUserId: auth.userId,
-    email: typeof email === 'string' ? email : `${auth.userId}@placeholder.local`,
+    email: typeof clerkEmail === 'string' ? clerkEmail : `${auth.userId}@placeholder.local`,
   }
 }

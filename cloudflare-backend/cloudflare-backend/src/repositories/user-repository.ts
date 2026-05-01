@@ -185,6 +185,15 @@ export class UserRepository {
   ): Promise<void> {
     await this.db
       .prepare(
+        `DELETE FROM gmail_watch_state
+         WHERE google_email = ?
+           AND clerk_user_id != ?`
+      )
+      .bind(watch.googleEmail, clerkUserId)
+      .run()
+
+    await this.db
+      .prepare(
         `INSERT INTO gmail_watch_state (
           clerk_user_id,
           google_email,
