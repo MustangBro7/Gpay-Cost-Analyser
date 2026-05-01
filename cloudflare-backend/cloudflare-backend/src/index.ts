@@ -297,13 +297,8 @@ app.post('/internal/pubsub/gmail', async (c) => {
   }
 
   const payload = JSON.parse(atob(envelope.message.data)) as GmailPushPayload
-  const duplicate = await users.hasProcessedDelivery(envelope.message.messageId)
-  if (duplicate) {
-    return c.json({ status: 'duplicate_skipped' })
-  }
-
-  await users.recordDelivery(envelope.message.messageId, payload.emailAddress, payload.historyId)
   const result = await gmail.processPush(payload)
+  await users.recordDelivery(envelope.message.messageId, payload.emailAddress, payload.historyId)
   return c.json({ status: 'processed', ...result })
 })
 

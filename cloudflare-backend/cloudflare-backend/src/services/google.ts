@@ -22,8 +22,24 @@ export interface GoogleTokenExchange {
 
 async function parseGoogleError(response: Response): Promise<string> {
   try {
-    const payload = await response.json<{ error?: string; error_description?: string }>()
-    return payload.error_description || payload.error || `Google request failed with status ${response.status}.`
+    const payload = await response.json<{
+      error?: string | { message?: string; status?: string }
+      error_description?: string
+    }>()
+
+    if (payload.error_description) {
+      return payload.error_description
+    }
+    if (typeof payload.error === 'string') {
+      return payload.error
+    }
+    if (payload.error?.message) {
+      return payload.error.message
+    }
+    if (payload.error?.status) {
+      return payload.error.status
+    }
+    return `Google request failed with status ${response.status}.`
   } catch {
     return `Google request failed with status ${response.status}.`
   }

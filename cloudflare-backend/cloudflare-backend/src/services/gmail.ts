@@ -220,34 +220,41 @@ export class GmailService {
     const ids = new Set<string>()
     let pageToken: string | undefined
 
-    do {
-      const params = new URLSearchParams({
-        startHistoryId,
-        historyTypes: 'messageAdded',
-      })
-      if (pageToken) {
-        params.set('pageToken', pageToken)
-      }
-      const response = await gmailRequest<GmailHistoryResponse>(
-        accessToken,
-        `/users/me/history?${params.toString()}`
-      )
+    try {
+      do {
+        const params = new URLSearchParams({
+          startHistoryId,
+          historyTypes: 'messageAdded',
+        })
+        if (pageToken) {
+          params.set('pageToken', pageToken)
+        }
+        const response = await gmailRequest<GmailHistoryResponse>(
+          accessToken,
+          `/users/me/history?${params.toString()}`
+        )
 
-      for (const historyItem of response.history ?? []) {
-        for (const entry of historyItem.messagesAdded ?? []) {
-          if (entry.message?.id) {
-            ids.add(entry.message.id)
+        for (const historyItem of response.history ?? []) {
+          for (const entry of historyItem.messagesAdded ?? []) {
+            if (entry.message?.id) {
+              ids.add(entry.message.id)
+            }
+          }
+          for (const entry of historyItem.messages ?? []) {
+            if (entry.id) {
+              ids.add(entry.id)
+            }
           }
         }
-        for (const entry of historyItem.messages ?? []) {
-          if (entry.id) {
-            ids.add(entry.id)
-          }
-        }
-      }
 
-      pageToken = response.nextPageToken
-    } while (pageToken)
+        pageToken = response.nextPageToken
+      } while (pageToken)
+    } catch (error) {
+      if (error instanceof HttpError && error.status === 404) {
+        throw new HttpError(404, 'Gmail history checkpoint is invalid or expired.')
+      }
+      throw error
+    }
 
     return [...ids]
   }
