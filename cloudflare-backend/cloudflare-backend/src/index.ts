@@ -1,7 +1,8 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
-import { requireClerkUser } from './auth/clerk'
+import { isLocalDevMode, requireAuthenticatedUser } from './auth/clerk'
+import { addDevTransaction, getDevTokenStatus, getDevTransactions, normalizeDevTransaction, reclassifyDevTransaction } from './dev/mock-data'
 import { verifyPubSubPush } from './auth/pubsub'
 import { TransactionRepository } from './repositories/transaction-repository'
 import { UserRepository } from './repositories/user-repository'
@@ -87,13 +88,28 @@ function parseDateRange(value: string): Date {
   return parsed
 }
 
+function filterTransactionsByDate(items: Transaction[], startDate: Date, endDate: Date): Transaction[] {
+  return items.filter((item) => {
+    const txDate = new Date(item.Date.replace(' ', 'T'))
+    return txDate >= startDate && txDate <= new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate(), 23, 59, 59)
+  })
+}
+
 app.get('/', (c) => c.json({ service: 'cloudflare-backend', status: 'ok' }))
 
 app.get('/health', (c) => c.json({ status: 'ok' }))
 
 app.post('/google/connect-url', async (c) => {
+  if (isLocalDevMode(c.env)) {
+    return c.json({
+      status: 'active',
+      message: 'Local dev mock mode is active.',
+      authorizationUrl: c.env.FRONTEND_ORIGIN,
+    })
+  }
+
   const { users, gmail } = getRepositories(c.env)
-  const authUser = await requireClerkUser(c)
+  const authUser = await requireAuthenticatedUser(c)
   await users.upsertUser(authUser.clerkUserId, authUser.email)
   const state = await gmail.syncGoogleConnection(authUser.clerkUserId)
 
@@ -119,8 +135,12 @@ app.post('/google/connect-url', async (c) => {
 })
 
 app.get('/token-status', async (c) => {
+  const authUser = await requireAuthenticatedUser(c)
+  if (isLocalDevMode(c.env)) {
+    return c.json(getDevTokenStatus(authUser))
+  }
+
   const { users, gmail } = getRepositories(c.env)
-  const authUser = await requireClerkUser(c)
   const user = await users.upsertUser(authUser.clerkUserId, authUser.email)
   const state = await gmail.syncGoogleConnection(authUser.clerkUserId)
 
@@ -192,27 +212,33 @@ app.get('/token-status', async (c) => {
 })
 
 app.post('/daterange', async (c) => {
-  const { users, transactions } = getRepositories(c.env)
-  const authUser = await requireClerkUser(c)
-  await users.upsertUser(authUser.clerkUserId, authUser.email)
+  const authUser = await requireAuthenticatedUser(c)
   const payload = await parseJsonBody<DateRangeRequest>(c.req.raw)
   const startDate = parseDateRange(payload.startDate)
   const endDate = parseDateRange(payload.endDate)
-  const items = await transactions.getTransactions(authUser.clerkUserId)
 
-  const filtered = items.filter((item) => {
-    const txDate = new Date(item.Date.replace(' ', 'T'))
-    return txDate >= startDate && txDate <= new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate(), 23, 59, 59)
-  })
-  return c.json(filtered)
+  if (isLocalDevMode(c.env)) {
+    return c.json(filterTransactionsByDate(getDevTransactions(), startDate, endDate))
+  }
+
+  const { users, transactions } = getRepositories(c.env)
+  await users.upsertUser(authUser.clerkUserId, authUser.email)
+  const items = await transactions.getTransactions(authUser.clerkUserId)
+  return c.json(filterTransactionsByDate(items, startDate, endDate))
 })
 
 app.post('/add-transaction', async (c) => {
-  const { users, transactions } = getRepositories(c.env)
-  const authUser = await requireClerkUser(c)
-  await users.upsertUser(authUser.clerkUserId, authUser.email)
+  const authUser = await requireAuthenticatedUser(c)
   const payload = await parseJsonBody<AddTransactionRequest>(c.req.raw)
   ensureDateTime(payload.Date, 'Date')
+
+  if (isLocalDevMode(c.env)) {
+    const transaction = addDevTransaction(payload)
+    return c.json({ status: 'created', transaction })
+  }
+
+  const { users, transactions } = getRepositories(c.env)
+  await users.upsertUser(authUser.clerkUserId, authUser.email)
 
   const result = await transactions.mutateTransactions(authUser.clerkUserId, (items) => {
     const exists = items.some((entry) => entry.Date === payload.Date && entry.Amount === payload.Amount)
@@ -233,10 +259,16 @@ app.post('/add-transaction', async (c) => {
 })
 
 app.post('/reclassify', async (c) => {
-  const { users, transactions } = getRepositories(c.env)
-  const authUser = await requireClerkUser(c)
-  await users.upsertUser(authUser.clerkUserId, authUser.email)
+  const authUser = await requireAuthenticatedUser(c)
   const payload = await parseJsonBody<ReclassifyRequest>(c.req.raw)
+
+  if (isLocalDevMode(c.env)) {
+    const result = reclassifyDevTransaction(payload)
+    return c.json({ status: 'updated', data: result.transactions, updated_transaction: result.updatedTransaction })
+  }
+
+  const { users, transactions } = getRepositories(c.env)
+  await users.upsertUser(authUser.clerkUserId, authUser.email)
 
   const result = await transactions.mutateTransactions(authUser.clerkUserId, (items) => {
     const match = items.find((entry) => entry.Date === payload.original.Date)
@@ -251,10 +283,16 @@ app.post('/reclassify', async (c) => {
 })
 
 app.post('/normalize', async (c) => {
-  const { users, transactions } = getRepositories(c.env)
-  const authUser = await requireClerkUser(c)
-  await users.upsertUser(authUser.clerkUserId, authUser.email)
+  const authUser = await requireAuthenticatedUser(c)
   const payload = await parseJsonBody<NormalizeRequest>(c.req.raw)
+
+  if (isLocalDevMode(c.env)) {
+    const result = normalizeDevTransaction(payload)
+    return c.json({ status: 'updated', data: result.transactions, updated_transaction: result.updatedTransaction })
+  }
+
+  const { users, transactions } = getRepositories(c.env)
+  await users.upsertUser(authUser.clerkUserId, authUser.email)
 
   const result = await transactions.mutateTransactions(authUser.clerkUserId, (items) => {
     const tx = items.find((entry) => entry.Date === payload.original.Date)
@@ -348,6 +386,10 @@ async function runHourlyRecovery(env: Env): Promise<void> {
 export default {
   fetch: app.fetch,
   scheduled: async (event: ScheduledEvent, env: Env) => {
+    if (isLocalDevMode(env)) {
+      return
+    }
+
     if (event.cron === '0 * * * *') {
       await runHourlyRecovery(env)
       return

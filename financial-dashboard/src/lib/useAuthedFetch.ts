@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { useAuth } from "@clerk/nextjs"
+import { useAppAuth } from "@/lib/auth"
+import { isLocalDevMockMode } from "@/lib/devMode"
 
 export class AuthTokenUnavailableError extends Error {
   code = "AUTH_TOKEN_UNAVAILABLE"
@@ -17,9 +18,13 @@ export function isAuthTokenUnavailableError(error: unknown): error is AuthTokenU
 }
 
 export function useAuthedFetch() {
-  const { getToken, isLoaded, isSignedIn } = useAuth()
+  const { getToken, isLoaded, isSignedIn } = useAppAuth()
 
   return React.useCallback(async (url: string, init: RequestInit = {}) => {
+    if (isLocalDevMockMode) {
+      return fetch(url, init)
+    }
+
     if (!isLoaded) {
       throw new AuthTokenUnavailableError("Clerk is still loading.")
     }

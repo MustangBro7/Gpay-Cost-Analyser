@@ -1,23 +1,22 @@
 'use client'
 
 import * as React from "react"
-import { DateRangeForm } from "../components/ui/DateRangeForm"
-import { PieChartComponent } from "../components/ui/TransactionPieChart"
-// import { BarChartComponent } from "../components/ui/BarChartComponent"
-// import { LineChartComponent } from "../components/ui/LineChartComponent"
 import { Toaster } from "@/components/ui/sonner"
 import { Transaction } from "@/types/Transaction"
-import { GlowingLineChart } from "@/components/ui/glowing-line"
-import { VerticalBarChart }  from "@/components/ui/VerticalBarChart"
-import { ClassificationFilter } from "@/components/ui/ClassificationFilter"
-import { AddTransactionDialog } from "@/components/ui/AddTransactionDialog"
+import { BrutalDateRangePicker } from "@/components/brutal/BrutalDateRangePicker"
+import { BrutalPieChart } from "@/components/brutal/BrutalPieChart"
+import { BrutalBarChart } from "@/components/brutal/BrutalBarChart"
+import { BrutalLineChart } from "@/components/brutal/BrutalLineChart"
+import { BrutalClassificationFilter } from "@/components/brutal/BrutalClassificationFilter"
+import { BrutalAddTransactionDialog } from "@/components/brutal/BrutalAddTransactionDialog"
+import { BrutalTransactionTable } from "@/components/brutal/BrutalTransactionTable"
+import { BrutalHeader } from "@/components/brutal/BrutalHeader"
+import { BrutalStatsRow } from "@/components/brutal/BrutalStatsRow"
 import { ReauthWarning } from "@/components/ui/ReauthWarning"
-import { Button } from "@/components/ui/button"
 import { GoogleSignInButton } from "@/components/ui/GoogleSignInButton"
+import { AppSignedIn, AppSignedOut, useAppUser } from "@/lib/auth"
 import { formatLocalDate } from "@/lib/utils"
 import { isAuthTokenUnavailableError, useAuthedFetch } from "@/lib/useAuthedFetch"
-import { SignedIn, SignedOut, useUser } from "@clerk/nextjs"
-import { Plus } from "lucide-react"
 
 function normalizeTransactions(payload: unknown): Transaction[] {
   return Array.isArray(payload) ? (payload as Transaction[]) : []
@@ -31,7 +30,7 @@ export default function Home() {
   const [isAddDialogOpen, setIsAddDialogOpen] = React.useState(false)
   const website_url = process.env.NEXT_PUBLIC_API_URL
   const authedFetch = useAuthedFetch()
-  const { user, isLoaded } = useUser()
+  const { user, isLoaded } = useAppUser()
 
   const fetchData = React.useCallback(async (range: { from: Date; to: Date }) => {
     if (!website_url) {
@@ -71,17 +70,13 @@ export default function Home() {
     setIsInitialLoad(false)
   }, [authedFetch, website_url])
 
-  // Auto-load this month's data on initial page load
   React.useEffect(() => {
-    if (!isLoaded) {
-      return
-    }
+    if (!isLoaded) return
 
     if (isInitialLoad && user) {
       const now = new Date()
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
       const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-      
       const initialRange = { from: startOfMonth, to: endOfMonth }
       setDateRange(initialRange)
       fetchData(initialRange).catch((error) => {
@@ -108,7 +103,6 @@ export default function Home() {
     if (dateRange) fetchData(dateRange)
   }, [dateRange, fetchData])
 
-  // Filter data based on selected classifications
   const filteredData = React.useMemo(() => {
     if (selectedClassifications.size === 0) return data
     return data.filter((tx) => selectedClassifications.has(tx.Classification))
@@ -116,66 +110,100 @@ export default function Home() {
 
   return (
     <>
-      <SignedOut>
-        <main className="min-h-screen flex items-center justify-center px-4">
-          <div className="text-center space-y-4">
-            <h1 className="text-2xl font-semibold">Sign in to continue</h1>
-            <GoogleSignInButton />
+      <AppSignedOut>
+        <main className="min-h-screen flex items-center justify-center px-4 bg-[#FFFDE6]">
+          <div className="text-center space-y-6">
+            <div className="brutal-border bg-white p-10 brutal-shadow-lg">
+              <h1 className="text-4xl font-black uppercase tracking-tight mb-2">
+                MONEY<span className="text-[#FF3366]">.</span>TRACKER
+              </h1>
+              <p className="text-sm font-mono text-black/60 mb-6">Sign in to track your spending</p>
+              <GoogleSignInButton />
+            </div>
           </div>
         </main>
-      </SignedOut>
+      </AppSignedOut>
 
-      <SignedIn>
-      {/* Re-authentication Warning - shows when token is expiring */}
-      <ReauthWarning userId={user?.id} userEmail={user?.primaryEmailAddress?.emailAddress ?? undefined} />
-      
-      <main className="flex flex-col items-center justify-center px-4 py-6 sm:p-6 space-y-5 sm:space-y-6 w-full max-w-7xl mx-auto">
-        {/* Header section with date picker and add button */}
-        <div className="w-full">
-          <DateRangeForm
-            onDataFetched={handleDataFetched}
-            actions={
-              <Button
+      <AppSignedIn>
+        <ReauthWarning userId={user?.id} userEmail={user?.primaryEmailAddress?.emailAddress ?? undefined} />
+
+        <div className="min-h-screen bg-[#FFFDE6] relative">
+          {/* Decorative background elements */}
+          <div className="fixed top-20 right-20 w-40 h-40 border-4 border-black rotate-12 opacity-[0.03] pointer-events-none" />
+          <div className="fixed bottom-40 left-10 w-60 h-60 bg-[#FF3366] rounded-full opacity-[0.03] pointer-events-none" />
+          <div className="fixed top-1/2 left-1/2 w-80 h-80 bg-[#00CCFF] rounded-full opacity-[0.02] pointer-events-none" />
+
+          <BrutalHeader />
+
+          <main className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 space-y-6">
+            {/* Controls Row */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+              <BrutalDateRangePicker onDataFetched={handleDataFetched} />
+              <button
                 onClick={() => setIsAddDialogOpen(true)}
-                className="gap-2 w-full sm:w-auto h-11"
+                className="brutal-border-sm bg-[#00FF88] px-5 py-3 font-black uppercase text-sm hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none brutal-shadow-sm transition-all"
               >
-                <Plus className="h-4 w-4" />
-                Add Transaction
-              </Button>
-            }
-          />
-        </div>
+                + ADD TRANSACTION
+              </button>
+            </div>
 
-        <AddTransactionDialog
-          open={isAddDialogOpen}
-          onOpenChange={setIsAddDialogOpen}
-          onSuccess={refetch}
-        />
-        
-        {/* Classification Filter */}
-        {data.length > 0 && (
-          <div className="w-full">
-            <ClassificationFilter
-              data={data}
-              selectedClassifications={selectedClassifications}
-              onSelectionChange={setSelectedClassifications}
+            <BrutalAddTransactionDialog
+              open={isAddDialogOpen}
+              onOpenChange={setIsAddDialogOpen}
+              onSuccess={refetch}
             />
-          </div>
-        )}
 
-        {/* Responsive dashboard layout */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6 w-full">
-          <PieChartComponent data={filteredData} refetch={refetch} />
-          
-          <div className="flex flex-col space-y-5 sm:space-y-6">
-            <VerticalBarChart data={filteredData} refetch={refetch}/>
-            <GlowingLineChart data={filteredData}/>
-          </div>
+            {/* Classification Filter */}
+            {data.length > 0 && (
+              <BrutalClassificationFilter
+                data={data}
+                selectedClassifications={selectedClassifications}
+                onSelectionChange={setSelectedClassifications}
+              />
+            )}
+
+            {/* Stats Row */}
+            {filteredData.length > 0 && <BrutalStatsRow data={filteredData} />}
+
+            {/* Charts Grid */}
+            {filteredData.length > 0 && (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Bar Chart - Takes more space */}
+                <div className="lg:col-span-7">
+                  <BrutalBarChart data={filteredData} refetch={refetch} />
+                </div>
+
+                {/* Pie Chart */}
+                <div className="lg:col-span-5">
+                  <BrutalPieChart data={filteredData} refetch={refetch} />
+                </div>
+
+                {/* Line Chart - Full width */}
+                <div className="lg:col-span-12">
+                  <BrutalLineChart data={filteredData} />
+                </div>
+              </div>
+            )}
+
+            {/* Transaction Table */}
+            {filteredData.length > 0 && (
+              <BrutalTransactionTable data={filteredData} refetch={refetch} />
+            )}
+
+            {/* Empty State */}
+            {!isInitialLoad && filteredData.length === 0 && (
+              <div className="brutal-border bg-white p-12 brutal-shadow text-center">
+                <p className="text-2xl font-black uppercase">NO DATA YET</p>
+                <p className="text-sm font-mono text-black/50 mt-2">
+                  Select a date range or add a transaction to get started
+                </p>
+              </div>
+            )}
+          </main>
         </div>
 
         <Toaster />
-      </main>
-      </SignedIn>
+      </AppSignedIn>
     </>
   )
 }

@@ -2,9 +2,10 @@
 
 import * as React from 'react'
 import { AlertTriangle, LogIn, Clock } from 'lucide-react'
-import { useSignIn, useUser } from '@clerk/nextjs'
+import { useAppSignIn, useAppUser } from '@/lib/auth'
 import { Button } from './button'
 import { useTokenStatus } from '@/hooks/useTokenStatus'
+import { isLocalDevMockMode } from '@/lib/devMode'
 
 interface ReauthWarningProps {
   className?: string
@@ -39,9 +40,13 @@ function getSsoCallbackUrl(): string {
 }
 
 export function ReauthWarning({ className, userId, userEmail }: ReauthWarningProps) {
+  if (isLocalDevMockMode) {
+    return null
+  }
+
   const { needsReauth, urgentUser, isLoading } = useTokenStatus({ pollInterval: 30000 })
-  const { isLoaded, signIn } = useSignIn()
-  const { user } = useUser()
+  const { isLoaded, signIn } = useAppSignIn()
+  const { user } = useAppUser()
   const [isRedirecting, setIsRedirecting] = React.useState(false)
   const hasAutoTriggeredRef = React.useRef(false)
   const shouldRender = !isLoading && needsReauth && Boolean(urgentUser)

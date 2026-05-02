@@ -28,6 +28,25 @@ npm run check
 npm run dev
 ```
 
+## Local Mock Mode
+
+For local frontend/backend work without Clerk or Google auth, enable the worker's mock mode in `cloudflare-backend/cloudflare-backend/.dev.vars`:
+
+```bash
+LOCAL_DEV_MODE=true
+DEV_MOCK_USER_ID=local-dev-user
+DEV_MOCK_USER_EMAIL=local-dev@gpay.local
+```
+
+With `LOCAL_DEV_MODE=true`, the worker:
+
+- skips Clerk bearer-token validation
+- returns a healthy `token-status` response
+- serves a mutable in-memory transaction dataset shaped like production data
+- supports `daterange`, `add-transaction`, `reclassify`, and `normalize`
+
+The dataset resets whenever `wrangler dev` restarts.
+
 Cloudflare-side provisioning used here:
 
 ```bash
