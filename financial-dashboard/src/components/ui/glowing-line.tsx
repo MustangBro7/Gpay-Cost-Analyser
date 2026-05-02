@@ -45,13 +45,28 @@ export function GlowingLineChart({ data }: { data?: Transaction[] }) {
       )
   }, [data])
 
+  const rangeLabel = React.useMemo(() => {
+    if (daily.length === 0) {
+      return "No transactions in the selected range"
+    }
+
+    const first = new Date(daily[0].date)
+    const last = new Date(daily[daily.length - 1].date)
+
+    return `${first.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    })} to ${last.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    })}`
+  }, [daily])
+
   return (
-    <Card>
+    <Card className="border-border/70 bg-card/90 shadow-sm">
       <CardHeader>
-        <CardTitle>
-          Daily Spend Trend
-        </CardTitle>
-        <CardDescription>Showing daily total spend</CardDescription>
+        <CardTitle>Daily Spend Trend</CardTitle>
+        <CardDescription>{rangeLabel}</CardDescription>
       </CardHeader>
 
       <CardContent>

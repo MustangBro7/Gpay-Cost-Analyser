@@ -44,7 +44,7 @@ export function TransactionItem({
 
   return (
     <>
-      <li className="border rounded-md p-3 bg-card shadow-sm text-sm space-y-1">
+      <li className="space-y-2 rounded-2xl border border-border/70 bg-background/75 p-4 text-sm shadow-sm">
         <div>
           <strong>₹{tx.Amount}</strong> to {tx.Receiver}
         </div>
@@ -55,16 +55,16 @@ export function TransactionItem({
           Current: {tx.Classification}
         </div>
 
-        <div className="flex items-center gap-2 mt-2">
+        <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
           <Input
             placeholder="New classification"
             value={newClass}
             onChange={(e) => setNewClass(e.target.value)}
-            className="h-8 text-xs"
+            className="h-9 text-xs"
           />
           <Button
             size="sm"
-            className="h-8"
+            className="h-9"
             onClick={handleReclassify}
           >
             Reclassify
@@ -72,7 +72,7 @@ export function TransactionItem({
           <Button
             size="sm"
             variant="outline"
-            className="h-8"
+            className="h-9"
             onClick={() => setNormalizeDialogOpen(true)}
           >
             Normalize

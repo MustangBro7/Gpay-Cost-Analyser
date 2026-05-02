@@ -15,7 +15,7 @@ import {
 import { useAppAuth } from "@/lib/auth"
 import { formatLocalDate } from "@/lib/utils"
 import { isAuthTokenUnavailableError, useAuthedFetch } from "@/lib/useAuthedFetch"
-import { Loader2 } from "lucide-react"
+import { CalendarRange, Loader2 } from "lucide-react"
 
 // Helper function to get start and end of current month
 const getCurrentMonthRange = () => {
@@ -83,6 +83,8 @@ export function DateRangeForm({
   const inFlightRef = React.useRef(false)
   const authedFetch = useAuthedFetch()
   const { isLoaded, isSignedIn } = useAppAuth()
+  const fromTime = date?.from?.getTime()
+  const toTime = date?.to?.getTime()
 
   // Fetch data whenever date range changes (after both from and to are selected)
   React.useEffect(() => {
@@ -143,7 +145,7 @@ export function DateRangeForm({
     }
 
     fetchData()
-  }, [authedFetch, date?.from?.getTime(), date?.to?.getTime(), isLoaded, isSignedIn, onDataFetched])
+  }, [authedFetch, date?.from, date?.to, fromTime, toTime, isLoaded, isSignedIn, onDataFetched])
 
   const handlePresetSelect = (range: DateRange) => {
     setDate(range)
@@ -151,17 +153,18 @@ export function DateRangeForm({
   }
 
   return (
-    <div className="flex flex-col sm:flex-row flex-wrap items-center justify-center gap-3 w-full px-4 sm:px-0">
+    <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
       <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
         <PopoverTrigger asChild>
           <Button
             variant="outline"
-            className="w-full sm:w-[300px] justify-center sm:justify-start text-left font-normal"
+            className="h-11 w-full justify-start gap-2 rounded-xl border-border/70 bg-background/75 px-4 text-left font-normal shadow-sm sm:w-[320px]"
             disabled={isLoading}
           >
+            <CalendarRange className="size-4 text-muted-foreground" />
             {isLoading ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="h-4 w-4 animate-spin" />
                 Loading...
               </>
             ) : date?.from ? (
@@ -174,26 +177,24 @@ export function DateRangeForm({
           </Button>
         </PopoverTrigger>
         <PopoverContent 
-          className="w-[calc(100vw-2rem)] max-w-[320px] p-0 mx-4" 
+          className="mx-4 w-[calc(100vw-2rem)] max-w-[340px] overflow-hidden rounded-2xl border-border/70 bg-popover/95 p-0 shadow-2xl backdrop-blur" 
           align="center"
           sideOffset={8}
         >
           <div className="flex flex-col items-center">
-            {/* Presets - wrap on multiple lines */}
-            <div className="flex flex-wrap justify-center gap-1.5 border-b p-3 w-full">
+            <div className="flex w-full flex-wrap justify-center gap-1.5 border-b border-border/70 p-3">
               {getPresets().map((preset) => (
                 <Button
                   key={preset.label}
-                  variant="ghost"
+                  variant="secondary"
                   size="sm"
-                  className="text-xs font-medium px-3 h-8"
+                  className="h-8 rounded-full px-3 text-xs"
                   onClick={() => handlePresetSelect(preset.range)}
                 >
                   {preset.label}
                 </Button>
               ))}
             </div>
-            {/* Calendar - centered */}
             <div className="flex justify-center p-2">
               <Calendar
                 initialFocus
@@ -208,7 +209,7 @@ export function DateRangeForm({
         </PopoverContent>
       </Popover>
 
-      {actions}
+      {actions ? <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">{actions}</div> : null}
     </div>
   )
 }

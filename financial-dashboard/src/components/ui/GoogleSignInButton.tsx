@@ -4,6 +4,7 @@ import * as React from 'react'
 import { ClerkLoaded, ClerkLoading } from '@clerk/nextjs'
 import { useAppSignIn } from '@/lib/auth'
 import { Button } from './button'
+import { ArrowRight, Chrome } from 'lucide-react'
 
 function getSsoCallbackUrl(): string {
   return new URL('/sso-callback', window.location.origin).toString()
@@ -37,11 +38,19 @@ export function GoogleSignInButton() {
   return (
     <>
       <ClerkLoading>
-        <Button disabled>Loading sign-in...</Button>
+        <Button disabled className="h-11 rounded-xl px-4">
+          Loading sign-in...
+        </Button>
       </ClerkLoading>
       <ClerkLoaded>
-        <Button onClick={handleSignIn} disabled={!isLoaded || isRedirecting}>
+        <Button
+          onClick={handleSignIn}
+          disabled={!isLoaded || isRedirecting}
+          className="h-11 rounded-xl px-4"
+        >
+          <Chrome className="size-4" />
           {isRedirecting ? 'Opening Google…' : 'Continue with Google'}
+          {!isRedirecting ? <ArrowRight className="size-4" /> : null}
         </Button>
       </ClerkLoaded>
     </>

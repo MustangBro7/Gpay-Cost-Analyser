@@ -8,7 +8,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { Transaction } from "@/types/Transaction"
-import { CheckIcon, ChevronDown } from "lucide-react"
+import { CheckIcon, ChevronDown, ListFilter } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface ClassificationFilterProps {
@@ -68,21 +68,27 @@ export function ClassificationFilter({
       <PopoverTrigger asChild>
         <Button
           variant="outline"
-          className="w-[250px] justify-between"
+          className="h-11 w-full justify-between rounded-xl border-border/70 bg-background/75 px-4 shadow-sm sm:w-[260px]"
         >
-          <span className="truncate">
-            {selectedClassifications.size === 0
-              ? "No filters"
-              : selectedClassifications.size === availableClassifications.length
-              ? "All classifications"
-              : `${selectedClassifications.size} selected`}
-          </span>
+          <div className="flex min-w-0 items-center gap-2">
+            <ListFilter className="size-4 text-muted-foreground" />
+            <span className="truncate">
+              {selectedClassifications.size === 0
+                ? "No filters"
+                : selectedClassifications.size === availableClassifications.length
+                ? "All classifications"
+                : `${selectedClassifications.size} selected`}
+            </span>
+          </div>
           <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[300px] p-0" align="start">
+      <PopoverContent
+        className="w-[300px] overflow-hidden rounded-2xl border-border/70 bg-popover/95 p-0 shadow-2xl backdrop-blur"
+        align="start"
+      >
         <div className="max-h-[400px] overflow-y-auto">
-          <div className="sticky top-0 bg-background border-b px-3 py-2 flex justify-between items-center">
+          <div className="sticky top-0 flex items-center justify-between border-b border-border/70 bg-background/95 px-3 py-2 backdrop-blur">
             <span className="text-sm font-semibold">Classifications</span>
             <div className="flex gap-2">
               <button
@@ -112,7 +118,7 @@ export function ClassificationFilter({
                 return (
                   <div
                     key={classification}
-                    className="flex items-center space-x-2 px-3 py-2 hover:bg-accent rounded-md cursor-pointer"
+                    className="flex cursor-pointer items-center space-x-2 rounded-xl px-3 py-2 transition-colors hover:bg-accent"
                     onClick={() => handleToggle(classification)}
                   >
                     <div

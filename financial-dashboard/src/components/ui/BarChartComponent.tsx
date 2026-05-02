@@ -93,12 +93,14 @@ export function BarChartComponent({
           dataKey="total"
           fill="#1f77b4"
           minPointSize={6}
-          onClick={(entry) =>
+          onClick={(_, index) => {
+            const item = grouped[index]
+            if (!item) return
             setSelected({
-              classification: entry.Classification,
-              total: entry.total,
+              classification: item.Classification,
+              total: item.total,
             })
-          }
+          }}
         >
           <LabelList dataKey="total" position="top" />
         </Bar>

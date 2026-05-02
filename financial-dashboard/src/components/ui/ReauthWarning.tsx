@@ -6,6 +6,7 @@ import { useAppSignIn, useAppUser } from '@/lib/auth'
 import { isLocalDevMockMode } from '@/lib/devMode'
 import { Button } from './button'
 import { useTokenStatus } from '@/hooks/useTokenStatus'
+import { cn } from '@/lib/utils'
 
 interface ReauthWarningProps {
   className?: string
@@ -48,12 +49,19 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
   const shouldRender = !isLoading && needsReauth && Boolean(urgentUser)
   const isExpired = urgentUser ? urgentUser.hours_remaining <= 0 : false
   const timeRemaining = urgentUser ? formatTimeRemaining(urgentUser.hours_remaining) : ''
+  const toneClasses = isExpired
+    ? {
+        surface: 'bg-destructive/10 text-destructive',
+        icon: 'bg-destructive/15 text-destructive',
+        emphasis: 'text-destructive',
+      }
+    : {
+        surface: 'bg-primary/10 text-primary',
+        icon: 'bg-primary/15 text-primary',
+        emphasis: 'text-primary',
+      }
 
-  if (isLocalDevMockMode) {
-    return null
-  }
-
-  const handleReauth = async () => {
+  const handleReauth = React.useCallback(async () => {
     if (isRedirecting) return
 
     setIsRedirecting(true)
@@ -88,10 +96,10 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
       console.error('Failed to start Google re-authentication:', error)
       setIsRedirecting(false)
     }
-  }
+  }, [isLoaded, isRedirecting, signIn, user?.externalAccounts])
 
   React.useEffect(() => {
-    if (!shouldRender || hasAutoTriggeredRef.current || isRedirecting) {
+    if (isLocalDevMockMode || !shouldRender || hasAutoTriggeredRef.current || isRedirecting) {
       return
     }
 
@@ -102,7 +110,11 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
 
     hasAutoTriggeredRef.current = true
     void handleReauth()
-  }, [isRedirecting, shouldRender])
+  }, [handleReauth, isRedirecting, shouldRender])
+
+  if (isLocalDevMockMode) {
+    return null
+  }
 
   if (!shouldRender || !urgentUser) {
     return null
@@ -110,17 +122,14 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
 
   return (
     <div className={`fixed inset-0 z-[100] flex items-center justify-center ${className || ''}`}>
-      {/* Backdrop - semi-transparent with blur */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-background/70 backdrop-blur-sm" />
       
-      {/* Warning Card */}
       <div className="relative z-10 w-full max-w-md mx-4 animate-in fade-in-0 zoom-in-95 duration-300">
-        <div className="bg-card border border-border rounded-xl shadow-2xl overflow-hidden">
-          {/* Header with warning stripe */}
-          <div className={`px-6 py-4 ${isExpired ? 'bg-destructive/20' : 'bg-amber-500/20'}`}>
+        <div className="overflow-hidden rounded-3xl border border-border/80 bg-card/95 shadow-2xl backdrop-blur">
+          <div className={cn('px-6 py-4', toneClasses.surface)}>
             <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-full ${isExpired ? 'bg-destructive/30' : 'bg-amber-500/30'}`}>
-                <AlertTriangle className={`w-6 h-6 ${isExpired ? 'text-destructive' : 'text-amber-500'}`} />
+              <div className={cn('rounded-full p-2', toneClasses.icon)}>
+                <AlertTriangle className="h-6 w-6" />
               </div>
               <div>
                 <h2 className="text-lg font-semibold text-foreground">
@@ -142,28 +151,30 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
               }
             </p>
             
-            {/* Time remaining display */}
             {!isExpired && (
-              <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50 border border-border">
+              <div className="flex items-center gap-2 rounded-2xl border border-border/70 bg-background/70 p-3">
                 <Clock className="w-5 h-5 text-muted-foreground" />
                 <span className="text-sm text-muted-foreground">Last known window:</span>
-                <span className={`text-sm font-semibold ${urgentUser.hours_remaining < 1 ? 'text-destructive' : 'text-amber-500'}`}>
+                <span
+                  className={cn(
+                    'text-sm font-semibold',
+                    urgentUser.hours_remaining < 1 ? 'text-destructive' : toneClasses.emphasis
+                  )}
+                >
                   {timeRemaining}
                 </span>
               </div>
             )}
             
-            {/* Warning note */}
             <p className="text-xs text-muted-foreground/80 italic">
               Note: Transaction monitoring is paused until your Google sign-in includes Gmail read access.
             </p>
           </div>
           
-          {/* Footer with action button */}
           <div className="px-6 py-4 bg-muted/30 border-t border-border">
             <Button 
               onClick={handleReauth}
-              className="w-full gap-2"
+              className="w-full gap-2 rounded-xl"
               size="lg"
               disabled={isRedirecting}
             >

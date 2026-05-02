@@ -210,7 +210,7 @@ export function NormalizeTransactionDialog({
 
             {payers.length === 0 ? (
               <p className="text-sm text-muted-foreground py-2">
-                No payers added. Click "Add Payer" to add one.
+                No payers added. Click &quot;Add Payer&quot; to add one.
               </p>
             ) : (
               <div className="space-y-2">
@@ -273,4 +273,3 @@ export function NormalizeTransactionDialog({
     </Dialog>
   )
 }
-
