@@ -20,6 +20,10 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "GPay Cost Analyzer",
   description: "Track, classify, and analyze Google Pay spending across custom date ranges.",
+  icons: {
+    icon: "/app-logo.png",
+    apple: "/app-logo.png",
+  },
 };
 
 export default function RootLayout({

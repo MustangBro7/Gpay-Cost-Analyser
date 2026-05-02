@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { format } from "date-fns"
+import Image from "next/image"
 import { DateRangeForm } from "../components/ui/DateRangeForm"
 import { PieChartComponent } from "../components/ui/TransactionPieChart"
 // import { BarChartComponent } from "../components/ui/BarChartComponent"
@@ -218,9 +219,18 @@ export default function Home() {
             <div className="flex flex-1 items-center justify-center py-10">
               <Card className="w-full max-w-3xl border-border/70 bg-card/90 shadow-xl backdrop-blur">
                 <CardHeader className="space-y-5 p-8 pb-4 sm:p-10 sm:pb-4">
-                  <Badge variant="outline" className="w-fit rounded-full px-3 py-1">
-                    Google Pay Cost Analyzer
-                  </Badge>
+                  <div className="flex items-center gap-3">
+                    <Image
+                      src="/app-logo.png"
+                      alt="GPay Cost Analyzer logo"
+                      width={48}
+                      height={48}
+                      className="rounded-full ring-1 ring-border/70 shadow-sm"
+                    />
+                    <Badge variant="outline" className="w-fit rounded-full px-3 py-1">
+                      Google Pay Cost Analyzer
+                    </Badge>
+                  </div>
                   <div className="space-y-3">
                     <CardTitle className="text-3xl font-semibold tracking-tight sm:text-4xl">
                       Clean spend analysis in the preset’s mist and teal system.
@@ -288,12 +298,23 @@ export default function Home() {
             <div className="flex flex-col gap-5">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div className="space-y-3">
-                  <Badge variant="outline" className="w-fit rounded-full px-3 py-1">
-                    Live spend dashboard
-                  </Badge>
-                  <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-                    Google Pay spend, clarified.
-                  </h1>
+                  <div className="flex items-center gap-3">
+                    <Image
+                      src="/app-logo.png"
+                      alt="GPay Cost Analyzer logo"
+                      width={52}
+                      height={52}
+                      className="rounded-full ring-1 ring-border/70 shadow-sm"
+                    />
+                    <div className="space-y-2">
+                      <Badge variant="outline" className="w-fit rounded-full px-3 py-1">
+                        Live spend dashboard
+                      </Badge>
+                      <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+                        Google Pay spend, clarified.
+                      </h1>
+                    </div>
+                  </div>
                 </div>
                 <div className="flex items-center gap-3 self-start">
                   <div className="hidden rounded-full border border-border/70 bg-card/80 px-4 py-2 text-sm text-muted-foreground shadow-sm sm:flex">
