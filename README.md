@@ -159,6 +159,23 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
 ```
 
+If you want to run the frontend and Cloudflare worker locally without Clerk auth, use:
+
+```env
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8787
+NEXT_PUBLIC_LOCAL_DEV_MOCKS=true
+NEXT_PUBLIC_LOCAL_DEV_USER_ID=local-dev-user
+NEXT_PUBLIC_LOCAL_DEV_USER_EMAIL=local-dev@gpay.local
+```
+
+Then set the worker flags in `cloudflare-backend/cloudflare-backend/.dev.vars`:
+
+```env
+LOCAL_DEV_MODE=true
+DEV_MOCK_USER_ID=local-dev-user
+DEV_MOCK_USER_EMAIL=local-dev@gpay.local
+```
+
 ### 4. Initial Authentication
 
 1. Start the API server:

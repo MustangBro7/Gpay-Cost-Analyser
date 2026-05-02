@@ -12,10 +12,10 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { useAppAuth } from "@/lib/auth"
 import { formatLocalDate } from "@/lib/utils"
 import { isAuthTokenUnavailableError, useAuthedFetch } from "@/lib/useAuthedFetch"
 import { Loader2 } from "lucide-react"
-import { useAuth } from "@clerk/nextjs"
 
 // Helper function to get start and end of current month
 const getCurrentMonthRange = () => {
@@ -82,7 +82,7 @@ export function DateRangeForm({
   const isFirstRender = React.useRef(true)
   const inFlightRef = React.useRef(false)
   const authedFetch = useAuthedFetch()
-  const { isLoaded, isSignedIn } = useAuth()
+  const { isLoaded, isSignedIn } = useAppAuth()
 
   // Fetch data whenever date range changes (after both from and to are selected)
   React.useEffect(() => {

@@ -1,6 +1,9 @@
 export interface Env {
   DB: D1Database
   TRANSACTIONS_BUCKET: R2Bucket
+  LOCAL_DEV_MODE?: string
+  DEV_MOCK_USER_ID?: string
+  DEV_MOCK_USER_EMAIL?: string
   CLERK_SECRET_KEY: string
   CLERK_PUBLISHABLE_KEY: string
   CLERK_JWT_KEY?: string

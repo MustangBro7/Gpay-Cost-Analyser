@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useAuth } from '@clerk/nextjs'
+import { useAppAuth } from '@/lib/auth'
 import { isAuthTokenUnavailableError, useAuthedFetch } from '@/lib/useAuthedFetch'
 
 export interface TokenStatus {
@@ -33,7 +33,7 @@ export function useTokenStatus(options: UseTokenStatusOptions = {}) {
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL
   const authedFetch = useAuthedFetch()
-  const { isLoaded, isSignedIn } = useAuth()
+  const { isLoaded, isSignedIn } = useAppAuth()
 
   const fetchTokenStatus = useCallback(async () => {
     if (!apiUrl) {

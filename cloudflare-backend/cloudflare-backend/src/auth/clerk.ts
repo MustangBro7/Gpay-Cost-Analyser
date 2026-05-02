@@ -15,6 +15,17 @@ function getAuthorizedParties(env: Env): string[] {
     .filter(Boolean)
 }
 
+export function isLocalDevMode(env: Pick<Env, 'LOCAL_DEV_MODE'>): boolean {
+  return env.LOCAL_DEV_MODE === 'true'
+}
+
+function getLocalDevUser(env: Pick<Env, 'DEV_MOCK_USER_ID' | 'DEV_MOCK_USER_EMAIL'>): AuthenticatedUser {
+  const clerkUserId = env.DEV_MOCK_USER_ID?.trim() || 'local-dev-user'
+  const email = env.DEV_MOCK_USER_EMAIL?.trim() || 'local-dev@gpay.local'
+
+  return { clerkUserId, email }
+}
+
 export function getClerkClient(env: Env) {
   return createClerkClient({
     secretKey: env.CLERK_SECRET_KEY,
@@ -169,4 +180,12 @@ export async function requireClerkUser(c: Context<{ Bindings: Env }>): Promise<A
     clerkUserId: auth.userId,
     email: typeof clerkEmail === 'string' ? clerkEmail : `${auth.userId}@placeholder.local`,
   }
+}
+
+export async function requireAuthenticatedUser(c: Context<{ Bindings: Env }>): Promise<AuthenticatedUser> {
+  if (isLocalDevMode(c.env)) {
+    return getLocalDevUser(c.env)
+  }
+
+  return requireClerkUser(c)
 }

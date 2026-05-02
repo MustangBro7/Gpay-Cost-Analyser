@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { ClerkProvider } from "@clerk/nextjs";
+import { AuthProvider } from "@/lib/auth";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -12,14 +12,6 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
-
-const publishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
-
-if (!publishableKey) {
-  throw new Error(
-    "Missing NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY. Set it in your deployment environment before building."
-  );
-}
 
 export const metadata: Metadata = {
   title: "Create Next App",
@@ -36,7 +28,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <ClerkProvider publishableKey={publishableKey}>{children}</ClerkProvider>
+        <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
   );

@@ -14,9 +14,9 @@ import { AddTransactionDialog } from "@/components/ui/AddTransactionDialog"
 import { ReauthWarning } from "@/components/ui/ReauthWarning"
 import { Button } from "@/components/ui/button"
 import { GoogleSignInButton } from "@/components/ui/GoogleSignInButton"
+import { AppSignedIn, AppSignedOut, useAppUser } from "@/lib/auth"
 import { formatLocalDate } from "@/lib/utils"
 import { isAuthTokenUnavailableError, useAuthedFetch } from "@/lib/useAuthedFetch"
-import { SignedIn, SignedOut, useUser } from "@clerk/nextjs"
 import { Plus } from "lucide-react"
 
 function normalizeTransactions(payload: unknown): Transaction[] {
@@ -31,7 +31,7 @@ export default function Home() {
   const [isAddDialogOpen, setIsAddDialogOpen] = React.useState(false)
   const website_url = process.env.NEXT_PUBLIC_API_URL
   const authedFetch = useAuthedFetch()
-  const { user, isLoaded } = useUser()
+  const { user, isLoaded } = useAppUser()
 
   const fetchData = React.useCallback(async (range: { from: Date; to: Date }) => {
     if (!website_url) {
@@ -116,16 +116,16 @@ export default function Home() {
 
   return (
     <>
-      <SignedOut>
+      <AppSignedOut>
         <main className="min-h-screen flex items-center justify-center px-4">
           <div className="text-center space-y-4">
             <h1 className="text-2xl font-semibold">Sign in to continue</h1>
             <GoogleSignInButton />
           </div>
         </main>
-      </SignedOut>
+      </AppSignedOut>
 
-      <SignedIn>
+      <AppSignedIn>
       {/* Re-authentication Warning - shows when token is expiring */}
       <ReauthWarning userId={user?.id} userEmail={user?.primaryEmailAddress?.emailAddress ?? undefined} />
       
@@ -175,7 +175,7 @@ export default function Home() {
 
         <Toaster />
       </main>
-      </SignedIn>
+      </AppSignedIn>
     </>
   )
 }

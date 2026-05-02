@@ -1,7 +1,8 @@
 'use client'
 
 import * as React from 'react'
-import { ClerkLoaded, ClerkLoading, useSignIn } from '@clerk/nextjs'
+import { ClerkLoaded, ClerkLoading } from '@clerk/nextjs'
+import { useAppSignIn } from '@/lib/auth'
 import { Button } from './button'
 
 function getSsoCallbackUrl(): string {
@@ -9,7 +10,7 @@ function getSsoCallbackUrl(): string {
 }
 
 export function GoogleSignInButton() {
-  const { isLoaded, signIn } = useSignIn()
+  const { isLoaded, signIn } = useAppSignIn()
   const [isRedirecting, setIsRedirecting] = React.useState(false)
 
   const handleSignIn = React.useCallback(async () => {
