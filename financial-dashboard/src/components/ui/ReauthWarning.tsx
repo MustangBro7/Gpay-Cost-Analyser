@@ -41,7 +41,7 @@ function getSsoCallbackUrl(): string {
 }
 
 export function ReauthWarning({ className, userId, userEmail }: ReauthWarningProps) {
-  const { needsReauth, urgentUser, isLoading } = useTokenStatus({ pollInterval: 30000 })
+  const { needsReauth, urgentUser, isLoading } = useTokenStatus({ pollInterval: 300000 })
   const { isLoaded, signIn } = useAppSignIn()
   const { user } = useAppUser()
   const [isRedirecting, setIsRedirecting] = React.useState(false)

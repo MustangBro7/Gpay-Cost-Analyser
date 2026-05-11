@@ -335,9 +335,26 @@ app.post('/internal/pubsub/gmail', async (c) => {
   }
 
   const payload = JSON.parse(atob(envelope.message.data)) as GmailPushPayload
-  const result = await gmail.processPush(payload)
-  await users.recordDelivery(envelope.message.messageId, payload.emailAddress, payload.historyId)
-  return c.json({ status: 'processed', ...result })
+
+  c.executionCtx.waitUntil(
+    (async () => {
+      if (await users.hasProcessedDelivery(envelope.message.messageId)) {
+        return
+      }
+
+      await users.recordDelivery(envelope.message.messageId, payload.emailAddress, payload.historyId)
+      await gmail.processPush(payload)
+    })().catch((error) => {
+      console.error('Failed to process Gmail Pub/Sub notification.', {
+        messageId: envelope.message.messageId,
+        emailAddress: payload.emailAddress,
+        historyId: payload.historyId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
+  )
+
+  return c.json({ status: 'accepted', processedMessages: 0 })
 })
 
 async function runDailyMaintenance(env: Env): Promise<void> {

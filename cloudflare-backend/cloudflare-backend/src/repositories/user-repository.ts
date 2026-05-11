@@ -35,7 +35,8 @@ export class UserRepository {
         ) VALUES (?, ?, 'disconnected', ?, ?)
         ON CONFLICT(clerk_user_id) DO UPDATE SET
           clerk_email = excluded.clerk_email,
-          updated_at = excluded.updated_at`
+          updated_at = excluded.updated_at
+        WHERE users.clerk_email IS NOT excluded.clerk_email`
       )
       .bind(clerkUserId, clerkEmail, timestamp, timestamp)
       .run()
@@ -85,9 +86,23 @@ export class UserRepository {
              google_auth_status = ?,
              google_connected_at = COALESCE(?, google_connected_at),
              updated_at = ?
-         WHERE clerk_user_id = ?`
+         WHERE clerk_user_id = ?
+           AND (
+             google_email IS NOT COALESCE(?, google_email)
+             OR google_auth_status IS NOT ?
+             OR google_connected_at IS NOT COALESCE(?, google_connected_at)
+           )`
       )
-      .bind(updates.googleEmail ?? null, updates.authStatus, updates.googleConnectedAt ?? null, nowIso(), clerkUserId)
+      .bind(
+        updates.googleEmail ?? null,
+        updates.authStatus,
+        updates.googleConnectedAt ?? null,
+        nowIso(),
+        clerkUserId,
+        updates.googleEmail ?? null,
+        updates.authStatus,
+        updates.googleConnectedAt ?? null
+      )
       .run()
   }
 

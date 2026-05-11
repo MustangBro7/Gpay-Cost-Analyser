@@ -38,6 +38,7 @@ type GmailMessageResponse = {
 
 export class GmailService {
   private readonly senders: string[]
+  private readonly watchLabelIds: string[]
 
   constructor(
     private readonly env: Env,
@@ -47,6 +48,10 @@ export class GmailService {
     this.senders = (env.HDFC_SENDERS || 'alerts@hdfcbank.net,alerts@hdfcbank.bank.in')
       .split(',')
       .map((sender) => sender.trim().toLowerCase())
+      .filter(Boolean)
+    this.watchLabelIds = (env.GMAIL_WATCH_LABEL_IDS || 'INBOX')
+      .split(',')
+      .map((labelId) => labelId.trim())
       .filter(Boolean)
   }
 
@@ -98,13 +103,38 @@ export class GmailService {
   }
 
   async getValidAccessToken(clerkUserId: string): Promise<{ accessToken: string; googleEmail: string }> {
-    const state = await this.syncGoogleConnection(clerkUserId)
-    if (state.authStatus === 'disconnected') {
-      throw new HttpError(404, 'Google account is not connected through Clerk.')
-    }
+    return this.getValidAccessTokenForContext(clerkUserId)
+  }
 
-    if (state.authStatus === 'reauth_required' || !state.googleEmail) {
-      throw new HttpError(401, 'Google account is missing Gmail read access. Re-authentication required.')
+  async getValidAccessTokenForContext(
+    clerkUserId: string,
+    options: {
+      skipConnectionSync?: boolean
+      googleEmailHint?: string | null
+    } = {}
+  ): Promise<{ accessToken: string; googleEmail: string }> {
+    let googleEmail = options.googleEmailHint ?? null
+
+    if (options.skipConnectionSync) {
+      if (!googleEmail) {
+        const user = await this.users.getUserByClerkId(clerkUserId)
+        googleEmail = user?.google_email ?? null
+      }
+
+      if (!googleEmail) {
+        throw new HttpError(401, 'Google account is missing Gmail read access. Re-authentication required.')
+      }
+    } else {
+      const state = await this.syncGoogleConnection(clerkUserId)
+      if (state.authStatus === 'disconnected') {
+        throw new HttpError(404, 'Google account is not connected through Clerk.')
+      }
+
+      if (state.authStatus === 'reauth_required' || !state.googleEmail) {
+        throw new HttpError(401, 'Google account is missing Gmail read access. Re-authentication required.')
+      }
+
+      googleEmail = state.googleEmail
     }
 
     try {
@@ -112,23 +142,23 @@ export class GmailService {
       if (!tokenRecord.token) {
         await this.users.setGoogleAuthStatus(clerkUserId, {
           authStatus: 'reauth_required',
-          googleEmail: state.googleEmail,
+          googleEmail,
         })
         throw new HttpError(401, 'Google OAuth token is unavailable from Clerk.')
       }
       if (!tokenRecord.scopes.includes(GMAIL_READONLY_SCOPE)) {
         await this.users.setGoogleAuthStatus(clerkUserId, {
           authStatus: 'reauth_required',
-          googleEmail: state.googleEmail,
+          googleEmail,
         })
         throw new HttpError(401, 'Google OAuth token is missing Gmail readonly scope.')
       }
 
-      return { accessToken: tokenRecord.token, googleEmail: state.googleEmail }
+      return { accessToken: tokenRecord.token, googleEmail }
     } catch (error) {
       await this.users.setGoogleAuthStatus(clerkUserId, {
         authStatus: 'reauth_required',
-        googleEmail: state.googleEmail,
+        googleEmail,
       })
       throw error
     }
@@ -157,7 +187,7 @@ export class GmailService {
       method: 'POST',
       body: JSON.stringify({
         topicName: this.env.GOOGLE_PUBSUB_TOPIC_NAME,
-        labelIds: ['INBOX'],
+        labelIds: this.watchLabelIds,
         labelFilterAction: 'include',
       }),
     })
@@ -183,13 +213,22 @@ export class GmailService {
 
     const watch = await this.users.getWatchStateByClerkId(user.clerk_user_id)
     const startHistoryId = watch?.last_history_id || payload.historyId
-    await this.users.markWatchNotification(user.clerk_user_id)
+    if (watch?.last_sync_at) {
+      const lastSyncAt = new Date(watch.last_sync_at).getTime()
+      if (!Number.isNaN(lastSyncAt) && Date.now() - lastSyncAt < 60_000) {
+        return { processedMessages: 0 }
+      }
+    }
 
     try {
-      const messageIds = await this.collectChangedMessageIds(user.clerk_user_id, startHistoryId)
+      const auth = await this.getValidAccessTokenForContext(user.clerk_user_id, {
+        skipConnectionSync: true,
+        googleEmailHint: user.google_email ?? watch?.google_email ?? payload.emailAddress,
+      })
+      const messageIds = await this.collectChangedMessageIds(auth.accessToken, startHistoryId)
       let processedMessages = 0
       for (const messageId of messageIds) {
-        const processed = await this.processMessage(user.clerk_user_id, messageId)
+        const processed = await this.processMessage(user.clerk_user_id, messageId, auth.accessToken)
         if (processed) {
           processedMessages += 1
         }
@@ -197,6 +236,17 @@ export class GmailService {
       await this.users.markWatchSync(user.clerk_user_id, payload.historyId, 'active', null)
       return { processedMessages }
     } catch (error) {
+      const requiresReauth =
+        error instanceof HttpError &&
+        (error.status === 401 || error.status === 403 || /authentication credential|oauth token|gmail readonly scope/i.test(error.message))
+
+      if (requiresReauth) {
+        await this.users.setGoogleAuthStatus(user.clerk_user_id, {
+          authStatus: 'reauth_required',
+          googleEmail: user.google_email ?? watch?.google_email ?? payload.emailAddress,
+        })
+      }
+
       const shouldRecover = error instanceof HttpError && /history/i.test(error.message)
       if (!shouldRecover) {
         await this.users.markWatchSync(
@@ -208,15 +258,18 @@ export class GmailService {
         throw error
       }
 
-      const processedMessages = await this.backfillRecentMessages(user.clerk_user_id)
+      const auth = await this.getValidAccessTokenForContext(user.clerk_user_id, {
+        skipConnectionSync: true,
+        googleEmailHint: user.google_email ?? watch?.google_email ?? payload.emailAddress,
+      })
+      const processedMessages = await this.backfillRecentMessages(user.clerk_user_id, auth.accessToken)
       const renewed = await this.createWatch(user.clerk_user_id)
       await this.users.markWatchSync(user.clerk_user_id, renewed.historyId ?? payload.historyId, 'active', null)
       return { processedMessages }
     }
   }
 
-  async collectChangedMessageIds(clerkUserId: string, startHistoryId: string): Promise<string[]> {
-    const { accessToken } = await this.getValidAccessToken(clerkUserId)
+  async collectChangedMessageIds(accessToken: string, startHistoryId: string): Promise<string[]> {
     const ids = new Set<string>()
     let pageToken: string | undefined
 
@@ -259,8 +312,7 @@ export class GmailService {
     return [...ids]
   }
 
-  async backfillRecentMessages(clerkUserId: string): Promise<number> {
-    const { accessToken } = await this.getValidAccessToken(clerkUserId)
+  async backfillRecentMessages(clerkUserId: string, accessToken: string): Promise<number> {
     const query = this.senders.map((sender) => `from:${sender}`).join(' OR ')
     let pageToken: string | undefined
     let processed = 0
@@ -284,7 +336,7 @@ export class GmailService {
           break
         }
         inspected += 1
-        if (await this.processMessage(clerkUserId, entry.id)) {
+        if (await this.processMessage(clerkUserId, entry.id, accessToken)) {
           processed += 1
         }
       }
@@ -298,12 +350,11 @@ export class GmailService {
     return processed
   }
 
-  private async processMessage(clerkUserId: string, messageId: string): Promise<boolean> {
+  private async processMessage(clerkUserId: string, messageId: string, accessToken: string): Promise<boolean> {
     if (await this.users.hasProcessedMessage(clerkUserId, messageId)) {
       return false
     }
 
-    const { accessToken } = await this.getValidAccessToken(clerkUserId)
     const response = await gmailRequest<GmailMessageResponse>(
       accessToken,
       `/users/me/messages/${encodeURIComponent(messageId)}?format=full`

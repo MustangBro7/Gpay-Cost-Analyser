@@ -20,11 +20,11 @@ export interface TokenStatus {
 }
 
 interface UseTokenStatusOptions {
-  pollInterval?: number // in milliseconds, default 30 seconds
+  pollInterval?: number // in milliseconds, default 5 minutes
 }
 
 export function useTokenStatus(options: UseTokenStatusOptions = {}) {
-  const { pollInterval = 30000 } = options
+  const { pollInterval = 300000 } = options
   const [tokenStatus, setTokenStatus] = useState<TokenStatus | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

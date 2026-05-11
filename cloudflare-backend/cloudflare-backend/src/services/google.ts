@@ -128,7 +128,10 @@ export async function gmailRequest<T>(
   })
   if (!response.ok) {
     const message = await parseGoogleError(response)
-    throw new HttpError(response.status === 404 ? 404 : 502, message)
+    if (response.status === 401 || response.status === 403 || response.status === 404) {
+      throw new HttpError(response.status, message)
+    }
+    throw new HttpError(502, message)
   }
   if (response.status === 204) {
     return undefined as T
