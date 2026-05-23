@@ -40,10 +40,24 @@ function getSsoCallbackUrl(): string {
   return callbackUrl.toString()
 }
 
+async function startGoogleRedirect(
+  signIn: NonNullable<ReturnType<typeof useAppSignIn>['signIn']>,
+  redirectUrlComplete: string
+) {
+  await signIn.authenticateWithRedirect({
+    strategy: 'oauth_google',
+    redirectUrl: getSsoCallbackUrl(),
+    redirectUrlComplete,
+    continueSignIn: true,
+    continueSignUp: true,
+    oidcPrompt: 'consent',
+  })
+}
+
 export function ReauthWarning({ className, userId, userEmail }: ReauthWarningProps) {
   const { needsReauth, urgentUser, isLoading } = useTokenStatus({ pollInterval: 300000 })
   const { isLoaded, signIn } = useAppSignIn()
-  const { user } = useAppUser()
+  const { isLoaded: isUserLoaded, user } = useAppUser()
   const [isRedirecting, setIsRedirecting] = React.useState(false)
   const hasAutoTriggeredRef = React.useRef(false)
   const shouldRender = !isLoading && needsReauth && Boolean(urgentUser)
@@ -62,41 +76,37 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
       }
 
   const handleReauth = React.useCallback(async () => {
-    if (isRedirecting) return
+    if (isRedirecting || !isLoaded || !isUserLoaded || !signIn) {
+      return
+    }
 
     setIsRedirecting(true)
     try {
+      const redirectUrlComplete = getCleanRedirectUrl()
       const googleAccount = user?.externalAccounts?.find((account) => {
         const provider = String(account.provider)
         return provider === 'google' || provider === 'oauth_google'
       })
 
       if (googleAccount) {
-        await googleAccount.reauthorize({
-          additionalScopes: ['https://www.googleapis.com/auth/gmail.readonly'],
-          oidcPrompt: 'consent',
-          redirectUrl: getSsoCallbackUrl(),
-        })
-        return
+        try {
+          await googleAccount.reauthorize({
+            additionalScopes: ['https://www.googleapis.com/auth/gmail.readonly'],
+            oidcPrompt: 'consent',
+            redirectUrl: getSsoCallbackUrl(),
+          })
+          return
+        } catch (error) {
+          console.warn('Google external account reauthorization did not start. Falling back to redirect flow.', error)
+        }
       }
 
-      if (!isLoaded || !signIn) {
-        throw new Error('Clerk sign-in is not ready yet.')
-      }
-
-      await signIn.authenticateWithRedirect({
-        strategy: 'oauth_google',
-        redirectUrl: '/sso-callback',
-        redirectUrlComplete: getCleanRedirectUrl(),
-        continueSignIn: true,
-        continueSignUp: true,
-        oidcPrompt: 'consent',
-      })
+      await startGoogleRedirect(signIn, redirectUrlComplete)
     } catch (error) {
       console.error('Failed to start Google re-authentication:', error)
       setIsRedirecting(false)
     }
-  }, [isLoaded, isRedirecting, signIn, user?.externalAccounts])
+  }, [isLoaded, isRedirecting, isUserLoaded, signIn, user?.externalAccounts])
 
   React.useEffect(() => {
     if (isLocalDevMockMode || !shouldRender || hasAutoTriggeredRef.current || isRedirecting) {
@@ -176,7 +186,7 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
               onClick={handleReauth}
               className="w-full gap-2 rounded-xl"
               size="lg"
-              disabled={isRedirecting}
+              disabled={!isLoaded || !isUserLoaded || !signIn || isRedirecting}
             >
               <LogIn className="w-4 h-4" />
               {isRedirecting ? 'Opening sign-in...' : 'Sign In With Google Again'}
