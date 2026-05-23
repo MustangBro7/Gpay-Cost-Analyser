@@ -240,7 +240,7 @@ Respond with strict JSON only:
   "Date": "YYYY-MM-DD HH:MM:SS"
 }`
 
-  const model = env.GOOGLE_GEMINI_MODEL || 'gemini-2.5-flash-lite'
+  const model = env.GOOGLE_GEMINI_MODEL || 'gemini-3.5-flash'
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`, {
     method: 'POST',
     headers: {
