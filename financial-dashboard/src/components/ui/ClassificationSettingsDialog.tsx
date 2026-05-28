@@ -699,32 +699,40 @@ export function ClassificationSettingsDialog({
             </div>
           ) : null}
 
-          <div className="border-t border-border/60 px-5 py-4 sm:px-8 sm:py-5">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div className="max-w-2xl text-sm leading-6 text-muted-foreground">
+          <div className="border-t border-border/60 px-4 py-2.5 sm:px-8 sm:py-5">
+            <div className="flex flex-col gap-2.5 sm:gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="hidden max-w-2xl text-sm leading-6 text-muted-foreground sm:block">
                 Applies to future incoming classifications only. Manual add and reclassify will use
                 your saved category list as suggestions.
               </div>
 
-              <div className="flex flex-col-reverse gap-3 sm:flex-row">
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-row sm:gap-3">
                 <Button
                   type="button"
                   variant="outline"
                   onClick={handleReset}
                   disabled={isSaving}
-                  className="h-11 rounded-full border-border/70 bg-background/70 px-5"
+                  className="h-9 rounded-full border-border/70 bg-background/70 px-3 text-xs sm:h-11 sm:px-5 sm:text-sm"
                 >
                   <RotateCcw className="size-4" />
-                  Reset to default
+                  <span className="sm:hidden">Reset</span>
+                  <span className="hidden sm:inline">Reset to default</span>
                 </Button>
                 <Button
                   type="button"
                   onClick={handleSave}
                   disabled={isSaving}
-                  className="h-11 rounded-full px-6"
+                  className="h-9 rounded-full px-4 text-xs sm:h-11 sm:px-6 sm:text-sm"
                 >
                   <Save className="size-4" />
-                  {isSaving ? "Saving..." : "Save rules"}
+                  {isSaving ? (
+                    "Saving..."
+                  ) : (
+                    <>
+                      <span className="sm:hidden">Save</span>
+                      <span className="hidden sm:inline">Save rules</span>
+                    </>
+                  )}
                 </Button>
               </div>
             </div>
