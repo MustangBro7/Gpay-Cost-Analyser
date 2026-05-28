@@ -5,10 +5,6 @@ import { AuthenticateWithRedirectCallback } from '@clerk/nextjs'
 import { isLocalDevMockMode } from '@/lib/devMode'
 
 export default function SsoCallbackPage() {
-  if (isLocalDevMockMode) {
-    return null
-  }
-
   const redirectUrl = React.useMemo(() => {
     if (typeof window === 'undefined') {
       return null
@@ -16,6 +12,10 @@ export default function SsoCallbackPage() {
 
     return new URLSearchParams(window.location.search).get('redirect_url')
   }, [])
+
+  if (isLocalDevMockMode) {
+    return null
+  }
 
   return (
     <AuthenticateWithRedirectCallback

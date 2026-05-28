@@ -368,7 +368,8 @@ export class GmailService {
       return false
     }
 
-    const transaction = await extractAndClassifyTransaction(this.env, message.bodyText, message.sentAt)
+    const classificationSettings = await this.users.getResolvedClassificationSettings(clerkUserId)
+    const transaction = await extractAndClassifyTransaction(this.env, message.bodyText, message.sentAt, classificationSettings)
     if (!transaction) {
       return false
     }

@@ -6,6 +6,10 @@ function padBase64(value: string): string {
   return `${value}${'='.repeat(4 - remainder)}`
 }
 
+export function encodeBase64Url(value: string): string {
+  return btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+}
+
 export function decodeBase64Url(value: string): string {
   const normalized = padBase64(value.replace(/-/g, '+').replace(/_/g, '/'))
   return atob(normalized)

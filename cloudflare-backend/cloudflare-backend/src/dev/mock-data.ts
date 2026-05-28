@@ -1,4 +1,12 @@
-import { AddTransactionRequest, AuthenticatedUser, NormalizeRequest, ReclassifyRequest, Transaction } from '../types'
+import {
+  AddTransactionRequest,
+  AuthenticatedUser,
+  ClassificationSettings,
+  NormalizeRequest,
+  ReclassifyRequest,
+  Transaction,
+} from '../types'
+import { getDefaultClassificationSettings } from '../services/classification-settings'
 import { HttpError } from '../utils/http'
 
 const seedTransactions: Transaction[] = [
@@ -34,6 +42,7 @@ const seedTransactions: Transaction[] = [
 ]
 
 let devTransactions = seedTransactions.map(cloneTransaction)
+const devClassificationSettings = new Map<string, Omit<ClassificationSettings, 'usesDefault'>>()
 
 function cloneTransaction(transaction: Transaction): Transaction {
   return {
@@ -48,6 +57,42 @@ function cloneTransactions(transactions: Transaction[]): Transaction[] {
 
 export function getDevTransactions(): Transaction[] {
   return cloneTransactions(devTransactions)
+}
+
+export function getDevClassificationSettings(user: AuthenticatedUser): ClassificationSettings {
+  const settings = devClassificationSettings.get(user.clerkUserId)
+  if (!settings) {
+    return getDefaultClassificationSettings()
+  }
+
+  return {
+    categories: [...settings.categories],
+    rulesText: settings.rulesText,
+    usesDefault: false,
+    updatedAt: settings.updatedAt,
+  }
+}
+
+export function upsertDevClassificationSettings(
+  user: AuthenticatedUser,
+  payload: {
+    categories: string[]
+    rulesText: string
+  }
+): ClassificationSettings {
+  const updatedAt = new Date().toISOString()
+  const settings = {
+    categories: [...payload.categories],
+    rulesText: payload.rulesText,
+    updatedAt,
+  }
+
+  devClassificationSettings.set(user.clerkUserId, settings)
+
+  return {
+    ...settings,
+    usesDefault: false,
+  }
 }
 
 export function addDevTransaction(payload: AddTransactionRequest): Transaction {

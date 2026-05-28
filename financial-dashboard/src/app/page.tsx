@@ -14,13 +14,19 @@ import { GlowingLineChart } from "@/components/ui/glowing-line"
 import { VerticalBarChart }  from "@/components/ui/VerticalBarChart"
 import { ClassificationFilter } from "@/components/ui/ClassificationFilter"
 import { AddTransactionDialog } from "@/components/ui/AddTransactionDialog"
+import { ClassificationSettingsDialog } from "@/components/ui/ClassificationSettingsDialog"
 import { ReauthWarning } from "@/components/ui/ReauthWarning"
 import { Button } from "@/components/ui/button"
 import { GoogleSignInButton } from "@/components/ui/GoogleSignInButton"
+import {
+  getDefaultClassificationSettings,
+  normalizeClassificationSettings,
+} from "@/lib/classificationSettings"
 import { AppSignedIn, AppSignedOut, useAppUser } from "@/lib/auth"
 import { formatLocalDate } from "@/lib/utils"
 import { isAuthTokenUnavailableError, useAuthedFetch } from "@/lib/useAuthedFetch"
 import { Badge } from "@/components/ui/badge"
+import { UpdateClassificationSettingsRequest } from "@/types/ClassificationSettings"
 import {
   Card,
   CardContent,
@@ -29,10 +35,12 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { ClassificationSettings } from "@/types/ClassificationSettings"
 import {
   CalendarRange,
   Layers3,
   Plus,
+  SlidersHorizontal,
   Sparkles,
   Wallet,
   X,
@@ -56,6 +64,10 @@ export default function Home() {
   const [selectedClassifications, setSelectedClassifications] = React.useState<Set<string>>(new Set())
   const [isInitialLoad, setIsInitialLoad] = React.useState(true)
   const [isAddDialogOpen, setIsAddDialogOpen] = React.useState(false)
+  const [isClassificationSettingsOpen, setIsClassificationSettingsOpen] = React.useState(false)
+  const [classificationSettings, setClassificationSettings] = React.useState<ClassificationSettings>(
+    getDefaultClassificationSettings()
+  )
   const website_url = process.env.NEXT_PUBLIC_API_URL
   const authedFetch = useAuthedFetch()
   const { user, isLoaded } = useAppUser()
@@ -98,6 +110,37 @@ export default function Home() {
     setIsInitialLoad(false)
   }, [authedFetch, website_url])
 
+  const fetchClassificationSettings = React.useCallback(async () => {
+    if (!website_url) {
+      setClassificationSettings(getDefaultClassificationSettings())
+      return
+    }
+
+    let response: Response
+    try {
+      response = await authedFetch(`${website_url}/classification-settings`)
+    } catch (error) {
+      if (isAuthTokenUnavailableError(error)) {
+        return
+      }
+
+      console.error("Failed to fetch classification settings:", error)
+      return
+    }
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        return
+      }
+
+      console.error(`Failed to fetch classification settings: ${response.status}`)
+      return
+    }
+
+    const payload = await response.json()
+    setClassificationSettings(normalizeClassificationSettings(payload))
+  }, [authedFetch, website_url])
+
   // Auto-load this month's data on initial page load
   React.useEffect(() => {
     if (!isLoaded) {
@@ -116,14 +159,28 @@ export default function Home() {
         setData([])
         setIsInitialLoad(false)
       })
+      fetchClassificationSettings().catch((error) => {
+        console.error("Failed to load classification settings:", error)
+      })
       return
     }
 
     if (isInitialLoad && !user) {
       setData([])
       setIsInitialLoad(false)
+      setClassificationSettings(getDefaultClassificationSettings())
     }
-  }, [isInitialLoad, fetchData, isLoaded, user])
+  }, [isInitialLoad, fetchClassificationSettings, fetchData, isLoaded, user])
+
+  React.useEffect(() => {
+    if (!isLoaded || !user) {
+      return
+    }
+
+    fetchClassificationSettings().catch((error) => {
+      console.error("Failed to refresh classification settings:", error)
+    })
+  }, [fetchClassificationSettings, isLoaded, user])
 
   const handleDataFetched = React.useCallback((data: Transaction[], range: { from: Date; to: Date }) => {
     setData(normalizeTransactions(data))
@@ -207,6 +264,29 @@ export default function Home() {
   const handleResetClassificationFocus = React.useCallback(() => {
     setSelectedClassifications(new Set(availableClassifications))
   }, [availableClassifications])
+
+  const handleClassificationSettingsSave = React.useCallback(async (payload: UpdateClassificationSettingsRequest) => {
+    if (!website_url) {
+      return
+    }
+
+    const response = await authedFetch(`${website_url}/classification-settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        categories: payload.categories,
+        rulesText: payload.rulesText,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(errorText || "Failed to save classification settings")
+    }
+
+    const nextSettings = await response.json()
+    setClassificationSettings(normalizeClassificationSettings(nextSettings))
+  }, [authedFetch, website_url])
 
   return (
     <>
@@ -317,6 +397,15 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="flex items-center gap-3 self-start">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10 rounded-full"
+                    onClick={() => setIsClassificationSettingsOpen(true)}
+                  >
+                    <SlidersHorizontal className="size-4" />
+                    Classification rules
+                  </Button>
                   <div className="hidden rounded-full border border-border/70 bg-card/80 px-4 py-2 text-sm text-muted-foreground shadow-sm sm:flex">
                     {user?.primaryEmailAddress?.emailAddress ?? "Signed in"}
                   </div>
@@ -416,6 +505,14 @@ export default function Home() {
             open={isAddDialogOpen}
             onOpenChange={setIsAddDialogOpen}
             onSuccess={refetch}
+            classificationCategories={classificationSettings.categories}
+          />
+
+          <ClassificationSettingsDialog
+            open={isClassificationSettingsOpen}
+            onOpenChange={setIsClassificationSettingsOpen}
+            settings={classificationSettings}
+            onSave={handleClassificationSettingsSave}
           />
 
           {data.length === 0 ? (
@@ -450,6 +547,7 @@ export default function Home() {
                 data={filteredData}
                 refetch={refetch}
                 rangeLabel={rangeLabel}
+                classificationCategories={classificationSettings.categories}
                 activeClassification={singleActiveClassification}
                 hasActiveClassificationFilter={!isAllClassificationsSelected}
                 onResetFilters={handleResetClassificationFocus}

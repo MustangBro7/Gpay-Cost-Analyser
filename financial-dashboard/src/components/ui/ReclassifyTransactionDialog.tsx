@@ -5,7 +5,7 @@ import { toast } from "sonner"
 import { Transaction } from "@/types/Transaction"
 import { useAuthedFetch } from "@/lib/useAuthedFetch"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { ClassificationInput } from "@/components/ui/ClassificationInput"
 import {
   Dialog,
   DialogContent,
@@ -20,6 +20,7 @@ interface ReclassifyTransactionDialogProps {
   onOpenChange: (open: boolean) => void
   transaction: Transaction
   onSuccess: () => void
+  classificationCategories: string[]
 }
 
 export function ReclassifyTransactionDialog({
@@ -27,6 +28,7 @@ export function ReclassifyTransactionDialog({
   onOpenChange,
   transaction,
   onSuccess,
+  classificationCategories,
 }: ReclassifyTransactionDialogProps) {
   const [newClassification, setNewClassification] = React.useState("")
   const [isSubmitting, setIsSubmitting] = React.useState(false)
@@ -98,12 +100,14 @@ export function ReclassifyTransactionDialog({
 
           <div className="space-y-2">
             <label className="text-sm font-medium">New classification</label>
-            <Input
-              value={newClassification}
-              onChange={(event) => setNewClassification(event.target.value)}
-              placeholder="Enter a classification"
-              className="h-11"
-            />
+            <div className="relative">
+              <ClassificationInput
+                categories={classificationCategories}
+                value={newClassification}
+                onChange={setNewClassification}
+                placeholder="Enter a classification"
+              />
+            </div>
           </div>
         </div>
 

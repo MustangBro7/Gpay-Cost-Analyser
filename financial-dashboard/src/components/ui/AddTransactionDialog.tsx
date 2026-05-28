@@ -3,6 +3,7 @@
 import * as React from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { ClassificationInput } from "@/components/ui/ClassificationInput"
 import { Input } from "@/components/ui/input"
 import {
   Dialog,
@@ -18,7 +19,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { CalendarIcon, Check, ChevronsUpDown } from "lucide-react"
+import { CalendarIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuthedFetch } from "@/lib/useAuthedFetch"
 import { format } from "date-fns"
@@ -27,102 +28,40 @@ interface AddTransactionDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
+  classificationCategories: string[]
 }
-
-const CLASSIFICATIONS = [
-  "Quick Commerce",
-  "Ecommerce",
-  "Subscriptions",
-  "Public Transport",
-  "Office Lunch",
-  "Grocery",
-  "Eating Out",
-  "Personal Transfer",
-  "Fuel",
-  "Personal Contact",
-  "Entertainment",
-  "Healthcare",
-  "Shopping",
-  "Utilities",
-  "Other",
-]
 
 export function AddTransactionDialog({
   open,
   onOpenChange,
   onSuccess,
+  classificationCategories,
 }: AddTransactionDialogProps) {
   const [amount, setAmount] = React.useState("")
   const [receiver, setReceiver] = React.useState("")
-  const [classification, setClassification] = React.useState("")
   const [classificationInput, setClassificationInput] = React.useState("")
-  const [isClassificationOpen, setIsClassificationOpen] = React.useState(false)
   const [date, setDate] = React.useState<Date | undefined>(new Date())
   const [isDatePickerOpen, setIsDatePickerOpen] = React.useState(false)
   const [time, setTime] = React.useState(
     format(new Date(), "HH:mm")
   )
   const [isSubmitting, setIsSubmitting] = React.useState(false)
-  const classificationInputRef = React.useRef<HTMLInputElement>(null)
-  const dropdownRef = React.useRef<HTMLDivElement>(null)
   const website_url = process.env.NEXT_PUBLIC_API_URL
   const authedFetch = useAuthedFetch()
-
-  // Filter classifications based on input
-  const filteredClassifications = React.useMemo(() => {
-    if (!classificationInput.trim()) return CLASSIFICATIONS
-    const search = classificationInput.toLowerCase()
-    return CLASSIFICATIONS.filter((cat) =>
-      cat.toLowerCase().includes(search)
-    )
-  }, [classificationInput])
-
-  // Check if the current input is a custom value (not in the list)
-  const isCustomValue = React.useMemo(() => {
-    if (!classificationInput.trim()) return false
-    return !CLASSIFICATIONS.some(
-      (cat) => cat.toLowerCase() === classificationInput.toLowerCase()
-    )
-  }, [classificationInput])
-
-  // Close dropdown when clicking outside
-  React.useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node) &&
-        classificationInputRef.current &&
-        !classificationInputRef.current.contains(event.target as Node)
-      ) {
-        setIsClassificationOpen(false)
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside)
-    return () => document.removeEventListener("mousedown", handleClickOutside)
-  }, [])
 
   // Reset form when dialog opens
   React.useEffect(() => {
     if (open) {
       setAmount("")
       setReceiver("")
-      setClassification("")
       setClassificationInput("")
-      setIsClassificationOpen(false)
       setDate(new Date())
       setTime(format(new Date(), "HH:mm"))
     }
   }, [open])
 
-  const selectClassification = (value: string) => {
-    setClassification(value)
-    setClassificationInput(value)
-    setIsClassificationOpen(false)
-  }
-
   const handleSubmit = async () => {
-    // Use the input value (allows custom classifications)
-    const finalClassification = classificationInput.trim() || classification
+    const finalClassification = classificationInput.trim()
 
     // Validation
     if (!amount || isNaN(parseFloat(amount))) {
@@ -218,81 +157,12 @@ export function AddTransactionDialog({
           <div className="space-y-2.5">
             <label className="text-sm font-medium block">Classification</label>
             <div className="relative">
-              <div className="relative">
-                <Input
-                  ref={classificationInputRef}
-                  type="text"
-                  placeholder="Type or select a category..."
-                  value={classificationInput}
-                  onChange={(e) => {
-                    setClassificationInput(e.target.value)
-                    setClassification("")
-                    setIsClassificationOpen(true)
-                  }}
-                  onFocus={() => setIsClassificationOpen(true)}
-                  className="h-12 text-base px-4 pr-10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setIsClassificationOpen(!isClassificationOpen)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1"
-                >
-                  <ChevronsUpDown className="h-5 w-5" />
-                </button>
-              </div>
-
-              {isClassificationOpen && (
-                <div
-                  ref={dropdownRef}
-                  className="absolute z-50 mt-2 w-full rounded-lg border bg-popover p-1.5 shadow-lg max-h-52 overflow-y-auto"
-                >
-                  {/* Show custom value option if input doesn't match any existing */}
-                  {isCustomValue && classificationInput.trim() && (
-                    <button
-                      type="button"
-                      onClick={() => selectClassification(classificationInput.trim())}
-                      className="relative flex w-full cursor-pointer select-none items-center rounded-md px-3 py-2.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
-                    >
-                      <span className="mr-2 text-muted-foreground">+</span>
-                      Create &quot;{classificationInput.trim()}&quot;
-                    </button>
-                  )}
-
-                  {filteredClassifications.length > 0 ? (
-                    filteredClassifications.map((cat) => (
-                      <button
-                        type="button"
-                        key={cat}
-                        onClick={() => selectClassification(cat)}
-                        className={cn(
-                          "relative flex w-full cursor-pointer select-none items-center rounded-md px-3 py-2.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
-                          classification === cat && "bg-accent"
-                        )}
-                      >
-                        <Check
-                          className={cn(
-                            "mr-2.5 h-4 w-4",
-                            classification === cat ? "opacity-100" : "opacity-0"
-                          )}
-                        />
-                        {cat}
-                      </button>
-                    ))
-                  ) : (
-                    !isCustomValue && (
-                      <div className="px-3 py-2.5 text-sm text-muted-foreground text-center">
-                        No categories found
-                      </div>
-                    )
-                  )}
-                </div>
-              )}
+              <ClassificationInput
+                categories={classificationCategories}
+                value={classificationInput}
+                onChange={setClassificationInput}
+              />
             </div>
-            {classificationInput && !classification && isCustomValue && (
-              <p className="text-xs text-muted-foreground mt-1.5">
-                Press Enter or click to add a custom category
-              </p>
-            )}
           </div>
 
           {/* Date & Time - Visual separator */}

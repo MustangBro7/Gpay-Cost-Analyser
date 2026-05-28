@@ -31,6 +31,14 @@ export interface ClerkUserRecord {
   updated_at: string
 }
 
+export interface ClassificationSettingsRecord {
+  clerk_user_id: string
+  categories_json: string
+  rules_text: string
+  created_at: string
+  updated_at: string
+}
+
 export interface GoogleTokenRecord {
   clerk_user_id: string
   access_token: string
@@ -89,14 +97,32 @@ export interface Transaction {
   OriginalAmount?: string
 }
 
+export interface ClassificationSettings {
+  categories: string[]
+  rulesText: string
+  usesDefault: boolean
+  updatedAt: string | null
+}
+
 export interface DateRangeRequest {
   startDate: string
   endDate: string
 }
 
+export interface UpdateClassificationSettingsRequest {
+  categories: string[]
+  rulesText: string
+}
+
 export interface AddTransactionRequest {
   Amount: string
   Classification: string
+  Receiver: string
+  Date: string
+}
+
+export interface ClassificationPreviewRequest {
+  Amount: string
   Receiver: string
   Date: string
 }

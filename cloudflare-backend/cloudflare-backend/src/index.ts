@@ -2,21 +2,35 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
 import { isLocalDevMode, requireAuthenticatedUser } from './auth/clerk'
-import { addDevTransaction, getDevTokenStatus, getDevTransactions, normalizeDevTransaction, reclassifyDevTransaction } from './dev/mock-data'
+import {
+  addDevTransaction,
+  getDevClassificationSettings,
+  getDevTokenStatus,
+  getDevTransactions,
+  normalizeDevTransaction,
+  reclassifyDevTransaction,
+  upsertDevClassificationSettings,
+} from './dev/mock-data'
 import { verifyPubSubPush } from './auth/pubsub'
 import { TransactionRepository } from './repositories/transaction-repository'
 import { UserRepository } from './repositories/user-repository'
+import { extractAndClassifyTransaction } from './services/classifier'
 import { GmailService } from './services/gmail'
+import { normalizeClassificationSettingsInput } from './services/classification-settings'
 import {
   AddTransactionRequest,
+  ClassificationPreviewRequest,
   DateRangeRequest,
   Env,
   GmailPushEnvelope,
   GmailPushPayload,
+  UpdateClassificationSettingsRequest,
   NormalizeRequest,
   ReclassifyRequest,
   Transaction,
 } from './types'
+import { encodeBase64Url } from './utils/base64'
+import { parseGmailMessage } from './utils/email'
 import { HttpError, parseJsonBody } from './utils/http'
 import { addHours, isPast, nowIso } from './utils/time'
 
@@ -41,7 +55,7 @@ app.use(
       return allowedOrigins.includes(origin) ? origin : ''
     },
     allowHeaders: ['Authorization', 'Content-Type'],
-    allowMethods: ['GET', 'POST', 'OPTIONS'],
+    allowMethods: ['GET', 'POST', 'PUT', 'OPTIONS'],
   })
 )
 
@@ -92,6 +106,78 @@ function filterTransactionsByDate(items: Transaction[], startDate: Date, endDate
   return items.filter((item) => {
     const txDate = new Date(item.Date.replace(' ', 'T'))
     return txDate >= startDate && txDate <= new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate(), 23, 59, 59)
+  })
+}
+
+function formatPreviewEmailDate(value: string): string {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2}) \d{2}:\d{2}:\d{2}$/)
+  if (!match) {
+    throw new HttpError(400, 'Date must be in YYYY-MM-DD HH:MM:SS format.')
+  }
+
+  return `${match[3]}-${match[2]}-${match[1].slice(-2)}`
+}
+
+function formatPreviewDateHeader(value: string): string {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/)
+  if (!match) {
+    throw new HttpError(400, 'Date must be in YYYY-MM-DD HH:MM:SS format.')
+  }
+
+  const iso = `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}+05:30`
+  const parsed = new Date(iso)
+  const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+  const weekday = weekdays[parsed.getUTCDay()]
+  const day = `${parsed.getUTCDate()}`.padStart(2, '0')
+  const month = months[parsed.getUTCMonth()]
+  const year = parsed.getUTCFullYear()
+
+  return `${weekday}, ${day} ${month} ${year} ${match[4]}:${match[5]}:${match[6]} +0530`
+}
+
+function buildClassificationPreviewEmail(payload: ClassificationPreviewRequest): string {
+  return `Dear Customer,
+
+Greetings from HDFC Bank!
+
+Rs.${payload.Amount}.00 is debited from your account ending 0230 towards VPA 9535634091@kotak811 (${payload.Receiver}) on ${formatPreviewEmailDate(payload.Date)}.
+
+UPI transaction reference no.: 651347891893.
+
+If you did not authorize this transaction, please report it immediately at:
+a. When in India (Toll free): 1800 258 6161
+b. When abroad: 9122 61606160
+c. Or SMS 'BLOCK UPI' to 7308080808.
+
+We're here to support you in every step of the way.
+
+Warm regards,
+HDFC Bank`
+}
+
+function buildClassificationPreviewMessage(payload: ClassificationPreviewRequest) {
+  const bodyText = buildClassificationPreviewEmail(payload)
+
+  return parseGmailMessage({
+    id: 'preview-message',
+    threadId: 'preview-thread',
+    payload: {
+      headers: [
+        { name: 'From', value: 'HDFC Bank <alerts@hdfcbank.net>' },
+        { name: 'Subject', value: 'Debit Alert' },
+        { name: 'Date', value: formatPreviewDateHeader(payload.Date) },
+      ],
+      parts: [
+        {
+          mimeType: 'text/plain',
+          body: {
+            data: encodeBase64Url(bodyText),
+          },
+        },
+      ],
+    },
   })
 }
 
@@ -208,6 +294,94 @@ app.get('/token-status', async (c) => {
     watch_expires_at: watch?.watch_expiration_at ?? null,
     last_sync_at: watch?.last_sync_at ?? null,
     reauth_reason: needsReauth ? state.reauthReason ?? watch?.last_error ?? 'manual_reauth_required' : watch?.last_error ?? null,
+  })
+})
+
+app.get('/classification-settings', async (c) => {
+  const authUser = await requireAuthenticatedUser(c)
+
+  if (isLocalDevMode(c.env)) {
+    return c.json(getDevClassificationSettings(authUser))
+  }
+
+  const { users } = getRepositories(c.env)
+  await users.upsertUser(authUser.clerkUserId, authUser.email)
+  return c.json(await users.getResolvedClassificationSettings(authUser.clerkUserId))
+})
+
+app.put('/classification-settings', async (c) => {
+  const authUser = await requireAuthenticatedUser(c)
+  const payload = normalizeClassificationSettingsInput(
+    await parseJsonBody<UpdateClassificationSettingsRequest>(c.req.raw)
+  )
+
+  if (isLocalDevMode(c.env)) {
+    return c.json(upsertDevClassificationSettings(authUser, payload))
+  }
+
+  const { users } = getRepositories(c.env)
+  await users.upsertUser(authUser.clerkUserId, authUser.email)
+  await users.upsertClassificationSettings(authUser.clerkUserId, payload)
+  return c.json(await users.getResolvedClassificationSettings(authUser.clerkUserId))
+})
+
+app.post('/classification-preview', async (c) => {
+  if (!isLocalDevMode(c.env)) {
+    throw new HttpError(404, 'Not found.')
+  }
+
+  const authUser = await requireAuthenticatedUser(c)
+  const payload = await parseJsonBody<ClassificationPreviewRequest>(c.req.raw)
+
+  if (!payload.Amount?.trim()) {
+    throw new HttpError(400, 'Amount is required.')
+  }
+  if (!payload.Receiver?.trim()) {
+    throw new HttpError(400, 'Receiver is required.')
+  }
+  ensureDateTime(payload.Date, 'Date')
+
+  const classificationSettings = getDevClassificationSettings(authUser)
+
+  const previewMessage = buildClassificationPreviewMessage({
+    Amount: payload.Amount.replace(/,/g, ''),
+    Receiver: payload.Receiver.trim(),
+    Date: payload.Date,
+  })
+
+  if (!previewMessage.from.toLowerCase().includes('alerts@hdfcbank.net')) {
+    throw new HttpError(500, 'Preview sender did not match HDFC sender filter.')
+  }
+  if (!previewMessage.bodyText.toLowerCase().includes('debited') && !previewMessage.bodyText.toLowerCase().includes('is debited')) {
+    throw new HttpError(500, 'Preview body did not match debit message filter.')
+  }
+
+  const transaction = await extractAndClassifyTransaction(
+    c.env,
+    previewMessage.bodyText,
+    previewMessage.sentAt,
+    classificationSettings
+  )
+  if (!transaction) {
+    throw new HttpError(500, 'Failed to classify preview transaction.')
+  }
+
+  return c.json({
+    status: 'ok',
+    input: {
+      Amount: payload.Amount.replace(/,/g, ''),
+      Receiver: payload.Receiver.trim(),
+      Date: payload.Date,
+    },
+    transaction,
+    preview_message: {
+      from: previewMessage.from,
+      subject: previewMessage.subject,
+      sentAt: previewMessage.sentAt,
+      bodyText: previewMessage.bodyText,
+    },
+    used_custom_rules: !classificationSettings.usesDefault,
+    model_enabled: Boolean(c.env.GEMINI_API_KEY),
   })
 })
 

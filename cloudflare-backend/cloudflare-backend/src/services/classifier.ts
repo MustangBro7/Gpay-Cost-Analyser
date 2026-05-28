@@ -1,4 +1,5 @@
-import { Env, Transaction } from '../types'
+import { DEFAULT_CLASSIFICATION_RULES_TEXT } from './classification-settings'
+import { ClassificationSettings, Env, Transaction } from '../types'
 import { HttpError } from '../utils/http'
 
 interface PartialTransaction {
@@ -200,12 +201,13 @@ function classifyHeuristically(receiver: string | undefined): string {
   return 'Other'
 }
 
-async function classifyWithGemini(env: Env, body: string, timestamp: string | null): Promise<PartialTransaction | null> {
-  if (!env.GEMINI_API_KEY) {
-    return null
-  }
-
-  const prompt = `You are a financial assistant. Extract transaction details from this HDFC Bank debit alert email and classify it.
+function buildClassificationPrompt(
+  body: string,
+  timestamp: string | null,
+  settings: ClassificationSettings
+): string {
+  if (settings.usesDefault) {
+    return `You are a financial assistant. Extract transaction details from this HDFC Bank debit alert email and classify it.
 
 ===Email Body
 ${sanitizeBody(body)}
@@ -220,17 +222,7 @@ ${timestamp ?? 'Unavailable'}
 4. Classify the transaction.
 
 ===Classification Guidelines
-1. If there is no receiver, classify it as Personal Contact.
-2. If the receiver is Blinkit or Zepto, classify it as Quick Commerce.
-3. If the receiver is Amazon or Flipkart, classify it as Ecommerce.
-4. If the receiver is Spotify, Netflix, Hotstar, or Google Play, classify it as Subscriptions.
-5. If the receiver has BMTC BUS or Bangalore Metro Rail Corporation Ltd, classify it as Public Transport.
-6. If the receiver is Hungerbox, classify it as Office Lunch.
-7. If the receiver has super market, supermarket, store, or mart in its name, classify it as Grocery.
-8. If the receiver is a restaurant, food chain, or includes Zomato, classify it as Eating Out.
-9. If the receiver is just a person's name, classify it as Personal Transfer.
-10. If the receiver has Fuel in its name, classify it as Fuel.
-11. Otherwise classify intelligently based on the merchant name.
+${DEFAULT_CLASSIFICATION_RULES_TEXT}
 
 Respond with strict JSON only:
 {
@@ -239,6 +231,51 @@ Respond with strict JSON only:
   "Receiver": "merchant or receiver",
   "Date": "YYYY-MM-DD HH:MM:SS"
 }`
+  }
+
+  const categoryList = settings.categories.map((category) => `- ${category}`).join('\n')
+
+  return `You are a financial assistant. Extract transaction details from this HDFC Bank debit alert email and classify it.
+
+===Email Body
+${sanitizeBody(body)}
+
+===Email Sent Timestamp
+${timestamp ?? 'Unavailable'}
+
+===Extraction Instructions
+1. Extract Amount as a number string without commas or currency symbols.
+2. Extract Receiver or Merchant name.
+3. Extract Date and Time in YYYY-MM-DD HH:MM:SS format. Use the email timestamp time when the body only includes a date.
+4. Classify the transaction.
+
+===Available Categories
+Use one of these categories whenever it fits the transaction:
+${categoryList}
+
+===Classification Guidelines
+${settings.rulesText}
+
+Respond with strict JSON only:
+{
+  "Amount": "number string",
+  "Classification": "category",
+  "Receiver": "merchant or receiver",
+  "Date": "YYYY-MM-DD HH:MM:SS"
+}`
+}
+
+async function classifyWithGemini(
+  env: Env,
+  body: string,
+  timestamp: string | null,
+  settings: ClassificationSettings
+): Promise<PartialTransaction | null> {
+  if (!env.GEMINI_API_KEY) {
+    return null
+  }
+
+  const prompt = buildClassificationPrompt(body, timestamp, settings)
 
   const model = env.GOOGLE_GEMINI_MODEL || 'gemini-3.5-flash'
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`, {
@@ -280,9 +317,14 @@ Respond with strict JSON only:
   }
 }
 
-export async function extractAndClassifyTransaction(env: Env, body: string, emailTimestamp: string | null): Promise<Transaction | null> {
+export async function extractAndClassifyTransaction(
+  env: Env,
+  body: string,
+  emailTimestamp: string | null,
+  settings: ClassificationSettings
+): Promise<Transaction | null> {
   const parsed = parseHdfcDebitEmail(body, emailTimestamp)
-  const ai = await classifyWithGemini(env, body, emailTimestamp).catch(() => null)
+  const ai = await classifyWithGemini(env, body, emailTimestamp, settings).catch(() => null)
   const merged = { ...parsed, ...ai }
 
   if (!merged?.Amount) {

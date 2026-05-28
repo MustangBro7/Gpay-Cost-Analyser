@@ -29,6 +29,7 @@ interface TransactionTableProps {
   data: Transaction[]
   refetch: () => void
   rangeLabel: string
+  classificationCategories: string[]
   activeClassification?: string | null
   hasActiveClassificationFilter?: boolean
   onResetFilters?: () => void
@@ -162,6 +163,7 @@ export function TransactionTable({
   data,
   refetch,
   rangeLabel,
+  classificationCategories,
   activeClassification,
   hasActiveClassificationFilter = false,
   onResetFilters,
@@ -501,6 +503,7 @@ export function TransactionTable({
           }}
           transaction={reclassifyTarget}
           onSuccess={refetch}
+          classificationCategories={classificationCategories}
         />
       ) : null}
 

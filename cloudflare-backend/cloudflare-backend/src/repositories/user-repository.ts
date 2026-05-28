@@ -1,4 +1,6 @@
 import {
+  ClassificationSettings,
+  ClassificationSettingsRecord,
   AuthStatus,
   ClerkUserRecord,
   GmailWatchStateRecord,
@@ -6,6 +8,7 @@ import {
   OAuthStateRecord,
   WatchStatus,
 } from '../types'
+import { resolveClassificationSettings, serializeCategories } from '../services/classification-settings'
 import { nowIso } from '../utils/time'
 
 function normalizeRow<T>(row: unknown): T | null {
@@ -56,6 +59,60 @@ export class UserRepository {
   async getUserByGoogleEmail(googleEmail: string): Promise<ClerkUserRecord | null> {
     const result = await this.db.prepare('SELECT * FROM users WHERE google_email = ?').bind(googleEmail).first()
     return normalizeRow<ClerkUserRecord>(result)
+  }
+
+  async getClassificationSettings(clerkUserId: string): Promise<ClassificationSettingsRecord | null> {
+    const result = await this.db
+      .prepare('SELECT * FROM user_classification_settings WHERE clerk_user_id = ?')
+      .bind(clerkUserId)
+      .first()
+    return normalizeRow<ClassificationSettingsRecord>(result)
+  }
+
+  async upsertClassificationSettings(
+    clerkUserId: string,
+    payload: {
+      categories: string[]
+      rulesText: string
+    }
+  ): Promise<ClassificationSettingsRecord> {
+    const existing = await this.getClassificationSettings(clerkUserId)
+    const timestamp = nowIso()
+
+    await this.db
+      .prepare(
+        `INSERT INTO user_classification_settings (
+          clerk_user_id,
+          categories_json,
+          rules_text,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(clerk_user_id) DO UPDATE SET
+          categories_json = excluded.categories_json,
+          rules_text = excluded.rules_text,
+          updated_at = excluded.updated_at`
+      )
+      .bind(
+        clerkUserId,
+        serializeCategories(payload.categories),
+        payload.rulesText,
+        existing?.created_at ?? timestamp,
+        timestamp
+      )
+      .run()
+
+    const settings = await this.getClassificationSettings(clerkUserId)
+    if (!settings) {
+      throw new Error('Failed to persist classification settings.')
+    }
+
+    return settings
+  }
+
+  async getResolvedClassificationSettings(clerkUserId: string): Promise<ClassificationSettings> {
+    const record = await this.getClassificationSettings(clerkUserId)
+    return resolveClassificationSettings(record)
   }
 
   async setGoogleAuthStatus(
