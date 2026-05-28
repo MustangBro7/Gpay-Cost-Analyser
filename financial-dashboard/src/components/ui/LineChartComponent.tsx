@@ -11,6 +11,7 @@ import {
   ResponsiveContainer,
 } from "recharts"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { getTransactionDateKey } from "@/lib/transactionDate"
 import { Transaction } from "@/types/Transaction"
 
 export function LineChartComponent({ data }: { data: Transaction[] }) {
@@ -18,12 +19,12 @@ export function LineChartComponent({ data }: { data: Transaction[] }) {
     const map: Record<string, number> = {}
     data.forEach((tx) => {
       const amt = parseFloat(tx.Amount.replace(/,/g, "")) || 0
-      const date = new Date(tx.Date).toISOString().split("T")[0]
+      const date = getTransactionDateKey(tx.Date)
       map[date] = (map[date] || 0) + amt
     })
     return Object.entries(map)
       .map(([date, total]) => ({ date, total }))
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .sort((a, b) => a.date.localeCompare(b.date))
   }, [data])
 
   return (

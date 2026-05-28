@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { NormalizeTransactionDialog } from "@/components/ui/NormalizeTransactionDialog"
+import { formatTransactionDate } from "@/lib/transactionDate"
 import { Transaction } from "@/types/Transaction"
 import { useAuthedFetch } from "@/lib/useAuthedFetch"
 
@@ -49,7 +50,7 @@ export function TransactionItem({
           <strong>₹{tx.Amount}</strong> to {tx.Receiver}
         </div>
         <div className="text-xs text-muted-foreground">
-          {new Date(tx.Date).toLocaleString()}
+          {formatTransactionDate(tx.Date)}
         </div>
         <div className="text-xs text-muted-foreground">
           Current: {tx.Classification}

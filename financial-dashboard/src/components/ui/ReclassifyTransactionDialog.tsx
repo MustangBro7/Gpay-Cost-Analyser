@@ -4,6 +4,7 @@ import * as React from "react"
 import { toast } from "sonner"
 import { Transaction } from "@/types/Transaction"
 import { useAuthedFetch } from "@/lib/useAuthedFetch"
+import { formatTransactionDate } from "@/lib/transactionDate"
 import { Button } from "@/components/ui/button"
 import { ClassificationInput } from "@/components/ui/ClassificationInput"
 import {
@@ -91,7 +92,7 @@ export function ReclassifyTransactionDialog({
           <div className="rounded-2xl border border-border/70 bg-muted/40 p-4 text-sm">
             <div className="font-medium">₹{transaction.Amount}</div>
             <div className="mt-1 text-muted-foreground">
-              {new Date(transaction.Date).toLocaleString()}
+              {formatTransactionDate(transaction.Date)}
             </div>
             <div className="mt-1 text-muted-foreground">
               Current: {transaction.Classification}

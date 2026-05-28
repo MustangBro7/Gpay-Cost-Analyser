@@ -10,8 +10,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { NormalizeTransactionDialog } from "@/components/ui/NormalizeTransactionDialog"
 import { ReclassifyTransactionDialog } from "@/components/ui/ReclassifyTransactionDialog"
+import { formatTransactionDate, getTransactionDateSortValue } from "@/lib/transactionDate"
 import { cn } from "@/lib/utils"
 import { Transaction } from "@/types/Transaction"
 import {
@@ -21,8 +23,10 @@ import {
   ArrowRight,
   PencilLine,
   RefreshCcw,
+  Search,
   SlidersHorizontal,
   Split,
+  X,
 } from "lucide-react"
 
 interface TransactionTableProps {
@@ -74,16 +78,6 @@ function formatAmount(value: string) {
   }).format(numeric)
 }
 
-function formatDate(value: string) {
-  return new Date(value).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  })
-}
-
 function parseAmount(value: string) {
   return Number.parseFloat(value.replace(/,/g, "")) || 0
 }
@@ -91,7 +85,7 @@ function parseAmount(value: string) {
 function compareTransactions(a: Transaction, b: Transaction, key: SortKey) {
   switch (key) {
     case "Date":
-      return new Date(a.Date).getTime() - new Date(b.Date).getTime()
+      return getTransactionDateSortValue(a.Date) - getTransactionDateSortValue(b.Date)
     case "Amount":
       return parseAmount(a.Amount) - parseAmount(b.Amount)
     case "Receiver":
@@ -171,18 +165,29 @@ export function TransactionTable({
   const [currentPage, setCurrentPage] = React.useState(1)
   const [sortKey, setSortKey] = React.useState<SortKey>("Date")
   const [sortDirection, setSortDirection] = React.useState<SortDirection>("desc")
+  const [receiverQuery, setReceiverQuery] = React.useState("")
   const [reclassifyTarget, setReclassifyTarget] = React.useState<Transaction | null>(null)
   const [normalizeTarget, setNormalizeTarget] = React.useState<Transaction | null>(null)
+  const deferredReceiverQuery = React.useDeferredValue(receiverQuery)
+  const normalizedReceiverQuery = deferredReceiverQuery.trim().toLowerCase()
+
+  const filteredData = React.useMemo(() => {
+    if (!normalizedReceiverQuery) {
+      return data
+    }
+
+    return data.filter((tx) => tx.Receiver.toLowerCase().includes(normalizedReceiverQuery))
+  }, [data, normalizedReceiverQuery])
 
   const sortedRows = React.useMemo(() => {
-    const sorted = [...data].sort((a, b) => {
+    const sorted = [...filteredData].sort((a, b) => {
       const primaryComparison = compareTransactions(a, b, sortKey)
 
       if (primaryComparison !== 0) {
         return sortDirection === "asc" ? primaryComparison : -primaryComparison
       }
 
-      return new Date(b.Date).getTime() - new Date(a.Date).getTime()
+      return getTransactionDateSortValue(b.Date) - getTransactionDateSortValue(a.Date)
     })
     const counts = new Map<string, number>()
 
@@ -196,7 +201,7 @@ export function TransactionTable({
         renderKey: `${baseKey}-${occurrence}`,
       }
     })
-  }, [data, sortDirection, sortKey])
+  }, [filteredData, sortDirection, sortKey])
 
   const updateSort = React.useCallback((column: SortKey) => {
     if (sortKey === column) {
@@ -211,10 +216,11 @@ export function TransactionTable({
   }, [sortKey])
 
   const totalPages = Math.max(1, Math.ceil(sortedRows.length / PAGE_SIZE))
+  const hasReceiverQuery = receiverQuery.trim().length > 0
 
   React.useEffect(() => {
     setCurrentPage(1)
-  }, [data, sortDirection, sortKey])
+  }, [data, normalizedReceiverQuery, sortDirection, sortKey])
 
   React.useEffect(() => {
     if (currentPage > totalPages) {
@@ -249,36 +255,80 @@ export function TransactionTable({
           <div className="space-y-2">
             <CardTitle>Transactions</CardTitle>
             <CardDescription>
-              Showing {data.length} transaction{data.length === 1 ? "" : "s"} for {rangeLabel}
+              Showing {filteredData.length} of {data.length} transaction
+              {filteredData.length === 1 ? "" : "s"} for {rangeLabel}
               {activeClassification ? ` in ${activeClassification}` : ""}
             </CardDescription>
           </div>
 
-          {hasActiveClassificationFilter && onResetFilters ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-9 rounded-full"
-              onClick={onResetFilters}
-            >
-              <RefreshCcw className="size-4" />
-              Show all
-            </Button>
-          ) : null}
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:min-w-80 sm:items-end">
+            <div className="relative w-full sm:max-w-sm">
+              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="search"
+                value={receiverQuery}
+                onChange={(event) => setReceiverQuery(event.target.value)}
+                placeholder="Search by receiver"
+                aria-label="Search transactions by receiver"
+                className="h-9 rounded-full pr-10 pl-9"
+              />
+              {hasReceiverQuery ? (
+                <button
+                  type="button"
+                  onClick={() => setReceiverQuery("")}
+                  aria-label="Clear receiver search"
+                  className="absolute top-1/2 right-3 inline-flex size-4 -translate-y-1/2 items-center justify-center text-muted-foreground transition hover:text-foreground"
+                >
+                  <X className="size-4" />
+                </button>
+              ) : null}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <span className="text-xs text-muted-foreground">Times shown in IST</span>
+              {hasActiveClassificationFilter && onResetFilters ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 rounded-full"
+                  onClick={onResetFilters}
+                >
+                  <RefreshCcw className="size-4" />
+                  Show all
+                </Button>
+              ) : null}
+            </div>
+          </div>
         </CardHeader>
 
         <CardContent>
-          {data.length === 0 ? (
+          {filteredData.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border/70 bg-background/40 px-4 py-10 text-center">
               <div className="mx-auto flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
                 <SlidersHorizontal className="size-4" />
               </div>
-              <p className="mt-4 text-sm font-medium">No transactions match the current classification filter.</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Reset the filter to see all transactions in this date range.
+              <p className="mt-4 text-sm font-medium">
+                {hasReceiverQuery
+                  ? "No transactions match this receiver search."
+                  : "No transactions match the current classification filter."}
               </p>
-              {onResetFilters ? (
+              <p className="mt-1 text-sm text-muted-foreground">
+                {hasReceiverQuery
+                  ? "Try a different receiver name or clear the search."
+                  : "Reset the filter to see all transactions in this date range."}
+              </p>
+              {hasReceiverQuery ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-4 rounded-full"
+                  onClick={() => setReceiverQuery("")}
+                >
+                  <ArrowRight className="size-4" />
+                  Clear search
+                </Button>
+              ) : onResetFilters ? (
                 <Button
                   type="button"
                   variant="outline"
@@ -369,7 +419,7 @@ export function TransactionTable({
                             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
                               <div className="min-w-0">
                                 <div className="text-[11px] text-muted-foreground">
-                                  {formatDate(tx.Date)}
+                                  {formatTransactionDate(tx.Date)}
                                 </div>
                                 <div className="truncate pr-2 text-sm font-medium">
                                   {tx.Receiver}
@@ -416,7 +466,7 @@ export function TransactionTable({
                           </div>
                         </td>
                         <td className="hidden px-4 py-3 whitespace-nowrap text-muted-foreground sm:table-cell">
-                          {formatDate(tx.Date)}
+                          {formatTransactionDate(tx.Date)}
                         </td>
                         <td className="hidden px-4 py-3 font-medium sm:table-cell">{tx.Receiver}</td>
                         <td className="hidden px-4 py-3 sm:table-cell">

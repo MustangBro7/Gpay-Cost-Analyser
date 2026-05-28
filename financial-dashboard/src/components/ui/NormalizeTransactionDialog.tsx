@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Plus, X } from "lucide-react"
+import { formatTransactionDate } from "@/lib/transactionDate"
 import { Transaction } from "@/types/Transaction"
 import { useAuthedFetch } from "@/lib/useAuthedFetch"
 
@@ -168,7 +169,7 @@ export function NormalizeTransactionDialog({
             <div className="flex justify-between items-center">
               <span className="text-sm text-muted-foreground">Date:</span>
               <span className="text-sm">
-                {new Date(transaction.Date).toLocaleString()}
+                {formatTransactionDate(transaction.Date)}
               </span>
             </div>
             <div className="flex justify-between items-center">

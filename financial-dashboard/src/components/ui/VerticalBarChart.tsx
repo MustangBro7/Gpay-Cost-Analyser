@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { format } from "date-fns"
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, XAxis, YAxis } from "recharts"
 import { Button } from "@/components/ui/button"
 import {
@@ -17,6 +16,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart"
+import { formatTransactionDateKey, getTransactionDateKey } from "@/lib/transactionDate"
 import { Transaction } from "@/types/Transaction"
 
 export const description = "A bar chart with a custom label"
@@ -68,12 +68,20 @@ export function VerticalBarChart({
 
   const dateRange = React.useMemo(() => {
     if (!data || data.length === 0) return null
-    const dates = data.map((tx) => new Date(tx.Date))
-    const minDate = new Date(Math.min(...dates.map((d) => d.getTime())))
-    const maxDate = new Date(Math.max(...dates.map((d) => d.getTime())))
+    const dates = data
+      .map((tx) => getTransactionDateKey(tx.Date))
+      .sort((left, right) => left.localeCompare(right))
+
+    const minDate = dates[0]
+    const maxDate = dates[dates.length - 1]
+
+    if (!minDate || !maxDate) {
+      return null
+    }
+
     return {
-      from: format(minDate, "d MMM yyyy"),
-      to: format(maxDate, "d MMM yyyy"),
+      from: formatTransactionDateKey(minDate, true),
+      to: formatTransactionDateKey(maxDate, true),
     }
   }, [data])
 

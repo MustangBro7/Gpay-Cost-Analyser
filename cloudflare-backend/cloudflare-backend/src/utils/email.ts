@@ -17,6 +17,8 @@ type GmailMessageResponse = {
   payload?: GmailMessagePart
 }
 
+const TRANSACTION_TIME_ZONE = 'Asia/Kolkata'
+
 function getHeader(headers: Array<{ name: string; value: string }> | undefined, name: string): string {
   const match = headers?.find((entry) => entry.name.toLowerCase() === name.toLowerCase())
   return match?.value ?? ''
@@ -53,13 +55,25 @@ export function extractEmailTimestamp(dateHeader: string | null): string | null 
   if (Number.isNaN(parsed.getTime())) {
     return null
   }
-  const year = parsed.getFullYear()
-  const month = `${parsed.getMonth() + 1}`.padStart(2, '0')
-  const day = `${parsed.getDate()}`.padStart(2, '0')
-  const hours = `${parsed.getHours()}`.padStart(2, '0')
-  const minutes = `${parsed.getMinutes()}`.padStart(2, '0')
-  const seconds = `${parsed.getSeconds()}`.padStart(2, '0')
-  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: TRANSACTION_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(parsed)
+
+  const values = Object.fromEntries(
+    parts
+      .filter((part) => part.type !== 'literal')
+      .map((part) => [part.type, part.value])
+  )
+
+  return `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute}:${values.second}`
 }
 
 export function parseGmailMessage(message: GmailMessageResponse): ParsedEmailMessage {

@@ -15,8 +15,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart"
-
-// import { TrendingUp } from "lucide-react"
+import { formatTransactionDateKey, getTransactionDateKey } from "@/lib/transactionDate"
 import { Transaction } from "@/types/Transaction"
 
 const chartConfig = {
@@ -34,15 +33,13 @@ export function GlowingLineChart({ data }: { data?: Transaction[] }) {
 
     data.forEach((tx) => {
       const amt = parseFloat(tx.Amount.replace(/,/g, "")) || 0
-      const date = new Date(tx.Date).toISOString().split("T")[0] // YYYY-MM-DD
+      const date = getTransactionDateKey(tx.Date)
       map[date] = (map[date] || 0) + amt
     })
 
     return Object.entries(map)
       .map(([date, total]) => ({ date, total }))
-      .sort(
-        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-      )
+      .sort((a, b) => a.date.localeCompare(b.date))
   }, [data])
 
   const rangeLabel = React.useMemo(() => {
@@ -50,16 +47,9 @@ export function GlowingLineChart({ data }: { data?: Transaction[] }) {
       return "No transactions in the selected range"
     }
 
-    const first = new Date(daily[0].date)
-    const last = new Date(daily[daily.length - 1].date)
-
-    return `${first.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    })} to ${last.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    })}`
+    return `${formatTransactionDateKey(daily[0].date)} to ${formatTransactionDateKey(
+      daily[daily.length - 1].date
+    )}`
   }, [daily])
 
   return (
@@ -85,12 +75,7 @@ export function GlowingLineChart({ data }: { data?: Transaction[] }) {
               tickLine={false}
               axisLine={false}
               tickMargin={8}
-              tickFormatter={(value) =>
-                new Date(value).toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                })
-              }
+              tickFormatter={(value) => formatTransactionDateKey(String(value))}
             />
             <ChartTooltip
               cursor={false}
@@ -110,12 +95,7 @@ export function GlowingLineChart({ data }: { data?: Transaction[] }) {
     stroke="var(--chart-2)"
     travellerWidth={10}
     // padding= "5px"
-    tickFormatter={(value) =>
-      new Date(value).toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-      })
-    }
+    tickFormatter={(value) => formatTransactionDateKey(String(value))}
   />
             <defs>
               <filter
