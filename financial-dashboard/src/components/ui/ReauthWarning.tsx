@@ -14,6 +14,8 @@ interface ReauthWarningProps {
   userEmail?: string
 }
 
+const GMAIL_READONLY_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly'
+
 function formatTimeRemaining(hours: number): string {
   if (hours <= 0) return 'Expired'
   if (hours < 1) {
@@ -54,6 +56,28 @@ async function startGoogleRedirect(
   })
 }
 
+async function startGoogleReconnect(
+  user: ReturnType<typeof useAppUser>['user'],
+  signIn: NonNullable<ReturnType<typeof useAppSignIn>['signIn']>,
+  redirectUrlComplete: string
+) {
+  if (user) {
+    try {
+      await user.createExternalAccount({
+        strategy: 'oauth_google',
+        additionalScopes: [GMAIL_READONLY_SCOPE],
+        redirectUrl: getSsoCallbackUrl(),
+        oidcPrompt: 'consent',
+      })
+      return
+    } catch (error) {
+      console.warn('Google external account reconnect did not start. Falling back to sign-in redirect.', error)
+    }
+  }
+
+  await startGoogleRedirect(signIn, redirectUrlComplete)
+}
+
 export function ReauthWarning({ className, userId, userEmail }: ReauthWarningProps) {
   const { needsReauth, urgentUser, isLoading } = useTokenStatus({ pollInterval: 300000 })
   const { isLoaded, signIn } = useAppSignIn()
@@ -83,30 +107,12 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
     setIsRedirecting(true)
     try {
       const redirectUrlComplete = getCleanRedirectUrl()
-      const googleAccount = user?.externalAccounts?.find((account) => {
-        const provider = String(account.provider)
-        return provider === 'google' || provider === 'oauth_google'
-      })
-
-      if (googleAccount) {
-        try {
-          await googleAccount.reauthorize({
-            additionalScopes: ['https://www.googleapis.com/auth/gmail.readonly'],
-            oidcPrompt: 'consent',
-            redirectUrl: getSsoCallbackUrl(),
-          })
-          return
-        } catch (error) {
-          console.warn('Google external account reauthorization did not start. Falling back to redirect flow.', error)
-        }
-      }
-
-      await startGoogleRedirect(signIn, redirectUrlComplete)
+      await startGoogleReconnect(user, signIn, redirectUrlComplete)
     } catch (error) {
       console.error('Failed to start Google re-authentication:', error)
       setIsRedirecting(false)
     }
-  }, [isLoaded, isRedirecting, isUserLoaded, signIn, user?.externalAccounts])
+  }, [isLoaded, isRedirecting, isUserLoaded, signIn, user])
 
   React.useEffect(() => {
     if (isLocalDevMockMode || !shouldRender || hasAutoTriggeredRef.current || isRedirecting) {
