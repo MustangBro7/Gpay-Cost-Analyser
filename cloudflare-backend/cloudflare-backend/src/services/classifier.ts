@@ -1,12 +1,31 @@
 import { DEFAULT_CLASSIFICATION_RULES_TEXT } from './classification-settings'
-import { ClassificationSettings, Env, Transaction } from '../types'
+import { AiAgentEvalSource, ClassificationSettings, Env, Transaction } from '../types'
 import { HttpError } from '../utils/http'
+import { AiAgentEvalRepository } from '../repositories/ai-agent-eval-repository'
 
 interface PartialTransaction {
   Amount?: string
   Receiver?: string
   Date?: string
   Classification?: string
+}
+
+interface ClassificationRunContext {
+  clerkUserId: string
+  clerkEmail: string
+  source: AiAgentEvalSource
+  gmailMessageId?: string | null
+  gmailThreadId?: string | null
+}
+
+interface ClassificationAttemptResult {
+  prompt: string | null
+  model: string | null
+  aiOutput: string | null
+  parsedOutput: PartialTransaction | null
+  errorMessage: string | null
+  latencyMs: number | null
+  status: 'success' | 'error' | 'skipped'
 }
 
 const CLASSIFICATION_RULES = [
@@ -270,50 +289,138 @@ async function classifyWithGemini(
   body: string,
   timestamp: string | null,
   settings: ClassificationSettings
-): Promise<PartialTransaction | null> {
-  if (!env.GEMINI_API_KEY) {
-    return null
-  }
-
+): Promise<ClassificationAttemptResult> {
   const prompt = buildClassificationPrompt(body, timestamp, settings)
-
   const model = env.GOOGLE_GEMINI_MODEL || 'gemini-3.5-flash'
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: prompt }],
-        },
-      ],
-    }),
-  })
 
-  if (!response.ok) {
-    throw new HttpError(502, `Gemini classification failed with status ${response.status}.`)
+  if (!env.GEMINI_API_KEY) {
+    return {
+      prompt,
+      model,
+      aiOutput: null,
+      parsedOutput: null,
+      errorMessage: 'Gemini API key is not configured.',
+      latencyMs: null,
+      status: 'skipped',
+    }
   }
 
-  const payload = await response.json<{
-    candidates?: Array<{
-      content?: {
-        parts?: Array<{ text?: string }>
-      }
-    }>
-  }>()
-  const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('').trim()
-  if (!text) {
-    return null
-  }
-
-  const clean = text.replace(/^```json\s*/i, '').replace(/```$/i, '').trim()
   try {
-    return JSON.parse(clean) as PartialTransaction
-  } catch {
-    return null
+    const startedAt = Date.now()
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: prompt }],
+          },
+        ],
+      }),
+    })
+    const latencyMs = Date.now() - startedAt
+
+    if (!response.ok) {
+      return {
+        prompt,
+        model,
+        aiOutput: await response.text().catch(() => null),
+        parsedOutput: null,
+        errorMessage: `Gemini classification failed with status ${response.status}.`,
+        latencyMs,
+        status: 'error',
+      }
+    }
+
+    const payload = await response.json<{
+      candidates?: Array<{
+        content?: {
+          parts?: Array<{ text?: string }>
+        }
+      }>
+    }>()
+    const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('').trim() ?? null
+    if (!text) {
+      return {
+        prompt,
+        model,
+        aiOutput: null,
+        parsedOutput: null,
+        errorMessage: 'Gemini returned an empty response.',
+        latencyMs,
+        status: 'error',
+      }
+    }
+
+    const clean = text.replace(/^```json\s*/i, '').replace(/```$/i, '').trim()
+    try {
+      return {
+        prompt,
+        model,
+        aiOutput: text,
+        parsedOutput: JSON.parse(clean) as PartialTransaction,
+        errorMessage: null,
+        latencyMs,
+        status: 'success',
+      }
+    } catch {
+      return {
+        prompt,
+        model,
+        aiOutput: text,
+        parsedOutput: null,
+        errorMessage: 'Gemini output could not be parsed as JSON.',
+        latencyMs,
+        status: 'error',
+      }
+    }
+  } catch (error) {
+    return {
+      prompt,
+      model,
+      aiOutput: null,
+      parsedOutput: null,
+      errorMessage: error instanceof Error ? error.message : 'Unknown Gemini request failure.',
+      latencyMs: null,
+      status: 'error',
+    }
+  }
+}
+
+async function logClassificationAttempt(
+  env: Env,
+  context: ClassificationRunContext,
+  settings: ClassificationSettings,
+  body: string,
+  timestamp: string | null,
+  attempt: ClassificationAttemptResult,
+  transaction: Transaction | null
+): Promise<void> {
+  try {
+    const repository = new AiAgentEvalRepository(env.DB)
+    await repository.create({
+      clerkUserId: context.clerkUserId,
+      clerkEmail: context.clerkEmail,
+      source: context.source,
+      status: attempt.status,
+      model: attempt.model,
+      emailTimestamp: timestamp,
+      gmailMessageId: context.gmailMessageId ?? null,
+      gmailThreadId: context.gmailThreadId ?? null,
+      inputBody: body,
+      prompt: attempt.prompt,
+      aiOutput: attempt.aiOutput,
+      parsedOutputJson: attempt.parsedOutput ? JSON.stringify(attempt.parsedOutput) : null,
+      finalTransactionJson: transaction ? JSON.stringify(transaction) : null,
+      errorMessage: attempt.errorMessage,
+      latencyMs: attempt.latencyMs,
+      usedCustomRules: !settings.usesDefault,
+    })
+  } catch (error) {
+    console.error('Failed to persist AI agent eval record:', error)
   }
 }
 
@@ -321,21 +428,25 @@ export async function extractAndClassifyTransaction(
   env: Env,
   body: string,
   emailTimestamp: string | null,
-  settings: ClassificationSettings
+  settings: ClassificationSettings,
+  context: ClassificationRunContext
 ): Promise<Transaction | null> {
   const parsed = parseHdfcDebitEmail(body, emailTimestamp)
-  const ai = await classifyWithGemini(env, body, emailTimestamp, settings).catch(() => null)
-  const merged = { ...parsed, ...ai }
+  const attempt = await classifyWithGemini(env, body, emailTimestamp, settings)
+  const merged = { ...parsed, ...attempt.parsedOutput }
 
   if (!merged?.Amount) {
+    await logClassificationAttempt(env, context, settings, body, emailTimestamp, attempt, null)
     return null
   }
 
   const receiver = merged.Receiver?.trim() || 'Personal Contact'
-  return {
+  const transaction = {
     Amount: merged.Amount.replace(/,/g, ''),
     Receiver: receiver,
     Date: merged.Date ?? emailTimestamp ?? formatDateTime(new Date()),
     Classification: merged.Classification?.trim() || classifyHeuristically(receiver),
   }
+  await logClassificationAttempt(env, context, settings, body, emailTimestamp, attempt, transaction)
+  return transaction
 }

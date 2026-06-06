@@ -6,6 +6,7 @@ import {
   GmailWatchStateRecord,
   GoogleTokenRecord,
   OAuthStateRecord,
+  UserRole,
   WatchStatus,
 } from '../types'
 import { resolveClassificationSettings, serializeCategories } from '../services/classification-settings'
@@ -25,23 +26,26 @@ function normalizeRow<T>(row: unknown): T | null {
 export class UserRepository {
   constructor(private readonly db: D1Database) {}
 
-  async upsertUser(clerkUserId: string, clerkEmail: string): Promise<ClerkUserRecord> {
+  async upsertUser(clerkUserId: string, clerkEmail: string, role?: UserRole | null): Promise<ClerkUserRecord> {
     const timestamp = nowIso()
     await this.db
       .prepare(
         `INSERT INTO users (
           clerk_user_id,
           clerk_email,
+          role,
           google_auth_status,
           created_at,
           updated_at
-        ) VALUES (?, ?, 'disconnected', ?, ?)
+        ) VALUES (?, ?, COALESCE(?, 'user'), 'disconnected', ?, ?)
         ON CONFLICT(clerk_user_id) DO UPDATE SET
           clerk_email = excluded.clerk_email,
+          role = COALESCE(?, users.role),
           updated_at = excluded.updated_at
-        WHERE users.clerk_email IS NOT excluded.clerk_email`
+        WHERE users.clerk_email IS NOT excluded.clerk_email
+           OR (? IS NOT NULL AND users.role IS NOT ?)`
       )
-      .bind(clerkUserId, clerkEmail, timestamp, timestamp)
+      .bind(clerkUserId, clerkEmail, role ?? null, timestamp, timestamp, role ?? null, role ?? null, role ?? null)
       .run()
 
     const user = await this.getUserByClerkId(clerkUserId)

@@ -7,6 +7,7 @@ import { isAuthTokenUnavailableError, useAuthedFetch } from '@/lib/useAuthedFetc
 export interface TokenStatus {
   user_id: string
   authenticated: boolean
+  role?: 'admin' | 'user'
   auth_timestamp: string | null
   expires_at: string | null
   hours_remaining: number

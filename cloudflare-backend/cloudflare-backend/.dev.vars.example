@@ -4,6 +4,7 @@
 LOCAL_DEV_MODE=false
 DEV_MOCK_USER_ID=local-dev-user
 DEV_MOCK_USER_EMAIL=local-dev@gpay.local
+DEV_MOCK_USER_ROLE=admin
 FRONTEND_ORIGIN=http://127.0.0.1:3000
 FRONTEND_ORIGINS=http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:3001,http://localhost:3001
 

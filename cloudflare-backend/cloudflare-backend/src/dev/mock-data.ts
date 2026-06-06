@@ -183,6 +183,7 @@ export function getDevTokenStatus(user: AuthenticatedUser) {
   return {
     user_id: user.clerkUserId,
     authenticated: true,
+    role: 'admin' as const,
     auth_timestamp: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(),
     expires_at: expiresAt,
     hours_remaining: 720,

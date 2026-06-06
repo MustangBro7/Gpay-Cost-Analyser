@@ -4,6 +4,8 @@ export interface Env {
   LOCAL_DEV_MODE?: string
   DEV_MOCK_USER_ID?: string
   DEV_MOCK_USER_EMAIL?: string
+  DEV_MOCK_USER_ROLE?: UserRole
+  ADMIN_EMAILS?: string
   CLERK_SECRET_KEY: string
   CLERK_PUBLISHABLE_KEY: string
   CLERK_JWT_KEY?: string
@@ -21,9 +23,14 @@ export interface Env {
   HDFC_SENDERS?: string
 }
 
+export type UserRole = 'admin' | 'user'
+export type AiAgentEvalSource = 'gmail' | 'preview'
+export type AiAgentEvalStatus = 'success' | 'error' | 'skipped'
+
 export interface ClerkUserRecord {
   clerk_user_id: string
   clerk_email: string
+  role: UserRole
   google_email: string | null
   google_auth_status: AuthStatus
   google_connected_at: string | null
@@ -82,6 +89,27 @@ export interface TransactionHeadRecord {
 export interface AuthenticatedUser {
   clerkUserId: string
   email: string
+}
+
+export interface AiAgentEvalRecord {
+  id: string
+  clerk_user_id: string
+  clerk_email: string
+  source: AiAgentEvalSource
+  status: AiAgentEvalStatus
+  model: string | null
+  email_timestamp: string | null
+  gmail_message_id: string | null
+  gmail_thread_id: string | null
+  input_body: string
+  prompt: string | null
+  ai_output: string | null
+  parsed_output_json: string | null
+  final_transaction_json: string | null
+  error_message: string | null
+  latency_ms: number | null
+  used_custom_rules: number
+  created_at: string
 }
 
 export type AuthStatus = 'disconnected' | 'active' | 'reauth_required' | 'error'

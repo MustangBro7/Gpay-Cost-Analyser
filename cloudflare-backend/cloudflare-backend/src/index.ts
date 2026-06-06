@@ -12,6 +12,7 @@ import {
   upsertDevClassificationSettings,
 } from './dev/mock-data'
 import { verifyPubSubPush } from './auth/pubsub'
+import { AiAgentEvalRepository } from './repositories/ai-agent-eval-repository'
 import { TransactionRepository } from './repositories/transaction-repository'
 import { UserRepository } from './repositories/user-repository'
 import { extractAndClassifyTransaction } from './services/classifier'
@@ -28,6 +29,7 @@ import {
   NormalizeRequest,
   ReclassifyRequest,
   Transaction,
+  UserRole,
 } from './types'
 import { encodeBase64Url } from './utils/base64'
 import { parseGmailMessage } from './utils/email'
@@ -82,9 +84,57 @@ app.onError((error, c) => {
 
 function getRepositories(env: Env) {
   const users = new UserRepository(env.DB)
+  const aiAgentEvals = new AiAgentEvalRepository(env.DB)
   const transactions = new TransactionRepository(env.DB, env.TRANSACTIONS_BUCKET)
   const gmail = new GmailService(env, users, transactions)
-  return { users, transactions, gmail }
+  return { users, aiAgentEvals, transactions, gmail }
+}
+
+function parseConfiguredValues(value?: string): Set<string> {
+  return new Set(
+    (value ?? '')
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase())
+      .filter(Boolean)
+  )
+}
+
+function resolveRequestedUserRole(env: Env, clerkUserId: string, email: string): UserRole | null {
+  if (isLocalDevMode(env)) {
+    return env.DEV_MOCK_USER_ROLE ?? 'admin'
+  }
+
+  const adminEmails = parseConfiguredValues(env.ADMIN_EMAILS)
+  if (adminEmails.has(email.trim().toLowerCase())) {
+    return 'admin'
+  }
+
+  return null
+}
+
+async function upsertAuthenticatedUser(env: Env, users: UserRepository, authUser: { clerkUserId: string; email: string }) {
+  return users.upsertUser(
+    authUser.clerkUserId,
+    authUser.email,
+    resolveRequestedUserRole(env, authUser.clerkUserId, authUser.email)
+  )
+}
+
+async function requireAdminUser(c: Parameters<typeof requireAuthenticatedUser>[0], users: UserRepository) {
+  const authUser = await requireAuthenticatedUser(c)
+  const user = await upsertAuthenticatedUser(c.env, users, authUser)
+  if (user.role !== 'admin') {
+    throw new HttpError(403, 'Admin access is required.')
+  }
+  return { authUser, user }
+}
+
+function parsePaginationValue(value: string | undefined, fallback: number, max: number): number {
+  const parsed = Number.parseInt(value ?? '', 10)
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return fallback
+  }
+  return Math.min(parsed, max)
 }
 
 function ensureDateTime(value: string, field: string): string {
@@ -181,6 +231,72 @@ function buildClassificationPreviewMessage(payload: ClassificationPreviewRequest
   })
 }
 
+async function seedLocalAiEvalTraces(env: Env, authUser: { clerkUserId: string; email: string }) {
+  const samples = [
+    {
+      source: 'gmail' as const,
+      body: `Dear Customer,
+
+Greetings from HDFC Bank!
+
+Rs.306.00 is debited from your account ending 0230 towards VPA blinkit@axisbank (Blinkit) on 28-04-26.
+
+UPI transaction reference no.: 651347891893.
+
+Warm regards,
+HDFC Bank`,
+      sentAt: '2026-04-28 16:42:18',
+      gmailMessageId: 'local-seed-gmail-001',
+      gmailThreadId: 'local-seed-thread-001',
+    },
+    {
+      source: 'gmail' as const,
+      body: `Dear Customer,
+
+Greetings from HDFC Bank!
+
+Rs.25.00 is debited from your account ending 0230 towards VPA bmtc@okicici (BMTC BUS KA57F1288) on 27-04-26.
+
+UPI transaction reference no.: 651347891894.
+
+Warm regards,
+HDFC Bank`,
+      sentAt: '2026-04-27 02:46:22',
+      gmailMessageId: 'local-seed-gmail-002',
+      gmailThreadId: 'local-seed-thread-002',
+    },
+    {
+      source: 'preview' as const,
+      body: buildClassificationPreviewEmail({
+        Amount: '420',
+        Receiver: 'PRAKASH B R',
+        Date: '2026-04-26 15:24:45',
+      }),
+      sentAt: '2026-04-26 15:24:45',
+      gmailMessageId: null,
+      gmailThreadId: null,
+    },
+  ]
+
+  const settings = isLocalDevMode(env)
+    ? getDevClassificationSettings(authUser)
+    : getRepositories(env).users.getResolvedClassificationSettings(authUser.clerkUserId)
+
+  const classificationSettings = await Promise.resolve(settings)
+
+  for (const sample of samples) {
+    await extractAndClassifyTransaction(env, sample.body, sample.sentAt, classificationSettings, {
+      clerkUserId: authUser.clerkUserId,
+      clerkEmail: authUser.email,
+      source: sample.source,
+      gmailMessageId: sample.gmailMessageId,
+      gmailThreadId: sample.gmailThreadId,
+    })
+  }
+
+  return samples.length
+}
+
 app.get('/', (c) => c.json({ service: 'cloudflare-backend', status: 'ok' }))
 
 app.get('/health', (c) => c.json({ status: 'ok' }))
@@ -196,7 +312,7 @@ app.post('/google/connect-url', async (c) => {
 
   const { users, gmail } = getRepositories(c.env)
   const authUser = await requireAuthenticatedUser(c)
-  await users.upsertUser(authUser.clerkUserId, authUser.email)
+  await upsertAuthenticatedUser(c.env, users, authUser)
   const state = await gmail.syncGoogleConnection(authUser.clerkUserId)
 
   if (state.authStatus === 'active') {
@@ -227,7 +343,7 @@ app.get('/token-status', async (c) => {
   }
 
   const { users, gmail } = getRepositories(c.env)
-  const user = await users.upsertUser(authUser.clerkUserId, authUser.email)
+  const user = await upsertAuthenticatedUser(c.env, users, authUser)
   const state = await gmail.syncGoogleConnection(authUser.clerkUserId)
 
   let watch = await users.getWatchStateByClerkId(authUser.clerkUserId)
@@ -258,6 +374,7 @@ app.get('/token-status', async (c) => {
     return c.json({
       user_id: authUser.clerkUserId,
       authenticated: false,
+      role: user.role,
       auth_timestamp: null,
       expires_at: null,
       hours_remaining: 0,
@@ -290,10 +407,55 @@ app.get('/token-status', async (c) => {
             ? 'Google access is linked, but Gmail watch setup failed.'
             : 'Google not connected',
     google_email: freshUser.google_email,
+    role: freshUser.role,
     auth_status: freshUser.google_auth_status,
     watch_expires_at: watch?.watch_expiration_at ?? null,
     last_sync_at: watch?.last_sync_at ?? null,
     reauth_reason: needsReauth ? state.reauthReason ?? watch?.last_error ?? 'manual_reauth_required' : watch?.last_error ?? null,
+  })
+})
+
+app.get('/admin/ai-evals', async (c) => {
+  const { users, aiAgentEvals } = getRepositories(c.env)
+  await requireAdminUser(c, users)
+
+  const limit = parsePaginationValue(c.req.query('limit'), 25, 100)
+  const offset = parsePaginationValue(c.req.query('offset'), 0, 10_000)
+  const statusValue = c.req.query('status')
+  const status = statusValue === 'success' || statusValue === 'error' || statusValue === 'skipped' ? statusValue : null
+  const query = c.req.query('query') ?? null
+
+  const { items, total } = await aiAgentEvals.list({
+    limit,
+    offset,
+    status,
+    query,
+  })
+
+  return c.json({
+    items,
+    pagination: {
+      limit,
+      offset,
+      total,
+      has_more: offset + items.length < total,
+    },
+  })
+})
+
+app.post('/admin/dev/seed-ai-evals', async (c) => {
+  if (!isLocalDevMode(c.env)) {
+    throw new HttpError(404, 'Not found.')
+  }
+
+  const { users } = getRepositories(c.env)
+  const { authUser } = await requireAdminUser(c, users)
+  const created = await seedLocalAiEvalTraces(c.env, authUser)
+
+  return c.json({
+    status: 'ok',
+    created,
+    message: 'Seeded local AI eval traces using the production classification flow.',
   })
 })
 
@@ -305,7 +467,7 @@ app.get('/classification-settings', async (c) => {
   }
 
   const { users } = getRepositories(c.env)
-  await users.upsertUser(authUser.clerkUserId, authUser.email)
+  await upsertAuthenticatedUser(c.env, users, authUser)
   return c.json(await users.getResolvedClassificationSettings(authUser.clerkUserId))
 })
 
@@ -320,7 +482,7 @@ app.put('/classification-settings', async (c) => {
   }
 
   const { users } = getRepositories(c.env)
-  await users.upsertUser(authUser.clerkUserId, authUser.email)
+  await upsertAuthenticatedUser(c.env, users, authUser)
   await users.upsertClassificationSettings(authUser.clerkUserId, payload)
   return c.json(await users.getResolvedClassificationSettings(authUser.clerkUserId))
 })
@@ -360,7 +522,12 @@ app.post('/classification-preview', async (c) => {
     c.env,
     previewMessage.bodyText,
     previewMessage.sentAt,
-    classificationSettings
+    classificationSettings,
+    {
+      clerkUserId: authUser.clerkUserId,
+      clerkEmail: authUser.email,
+      source: 'preview',
+    }
   )
   if (!transaction) {
     throw new HttpError(500, 'Failed to classify preview transaction.')
@@ -396,7 +563,7 @@ app.post('/daterange', async (c) => {
   }
 
   const { users, transactions } = getRepositories(c.env)
-  await users.upsertUser(authUser.clerkUserId, authUser.email)
+  await upsertAuthenticatedUser(c.env, users, authUser)
   const items = await transactions.getTransactions(authUser.clerkUserId)
   return c.json(filterTransactionsByDate(items, startDate, endDate))
 })
@@ -412,7 +579,7 @@ app.post('/add-transaction', async (c) => {
   }
 
   const { users, transactions } = getRepositories(c.env)
-  await users.upsertUser(authUser.clerkUserId, authUser.email)
+  await upsertAuthenticatedUser(c.env, users, authUser)
 
   const result = await transactions.mutateTransactions(authUser.clerkUserId, (items) => {
     const exists = items.some((entry) => entry.Date === payload.Date && entry.Amount === payload.Amount)
@@ -442,7 +609,7 @@ app.post('/reclassify', async (c) => {
   }
 
   const { users, transactions } = getRepositories(c.env)
-  await users.upsertUser(authUser.clerkUserId, authUser.email)
+  await upsertAuthenticatedUser(c.env, users, authUser)
 
   const result = await transactions.mutateTransactions(authUser.clerkUserId, (items) => {
     const match = items.find((entry) => entry.Date === payload.original.Date)
@@ -466,7 +633,7 @@ app.post('/normalize', async (c) => {
   }
 
   const { users, transactions } = getRepositories(c.env)
-  await users.upsertUser(authUser.clerkUserId, authUser.email)
+  await upsertAuthenticatedUser(c.env, users, authUser)
 
   const result = await transactions.mutateTransactions(authUser.clerkUserId, (items) => {
     const tx = items.find((entry) => entry.Date === payload.original.Date)

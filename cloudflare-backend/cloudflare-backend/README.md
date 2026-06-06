@@ -36,16 +36,26 @@ For local frontend/backend work without Clerk or Google auth, enable the worker'
 LOCAL_DEV_MODE=true
 DEV_MOCK_USER_ID=local-dev-user
 DEV_MOCK_USER_EMAIL=local-dev@gpay.local
+DEV_MOCK_USER_ROLE=admin
 ```
 
 With `LOCAL_DEV_MODE=true`, the worker:
 
 - skips Clerk bearer-token validation
+- upserts the local mock user into D1 with `role=admin` by default
 - returns a healthy `token-status` response
 - serves a mutable in-memory transaction dataset shaped like production data
 - supports `daterange`, `add-transaction`, `reclassify`, and `normalize`
+- supports the admin AI trace page at `/admin/evals`
+- supports `POST /admin/dev/seed-ai-evals` to generate realistic local eval rows through the same classification flow used in production
 
 The dataset resets whenever `wrangler dev` restarts.
+
+If your local Worker schema is behind, apply migrations before testing:
+
+```bash
+npm run db:migrate:local
+```
 
 Cloudflare-side provisioning used here:
 
