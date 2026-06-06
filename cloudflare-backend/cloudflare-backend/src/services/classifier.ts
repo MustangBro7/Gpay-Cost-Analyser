@@ -225,35 +225,7 @@ function buildClassificationPrompt(
   timestamp: string | null,
   settings: ClassificationSettings
 ): string {
-  if (settings.usesDefault) {
-    return `You are a financial assistant. Extract transaction details from this HDFC Bank debit alert email and classify it.
-
-===Email Body
-${sanitizeBody(body)}
-
-===Email Sent Timestamp
-${timestamp ?? 'Unavailable'}
-
-===Extraction Instructions
-1. Extract Amount as a number string without commas or currency symbols.
-2. Extract Receiver or Merchant name.
-3. Extract Date and Time in YYYY-MM-DD HH:MM:SS format. Use the email timestamp time when the body only includes a date.
-4. Classify the transaction.
-
-===Classification Guidelines
-${DEFAULT_CLASSIFICATION_RULES_TEXT}
-
-Respond with strict JSON only:
-{
-  "Amount": "number string",
-  "Classification": "category",
-  "Receiver": "merchant or receiver",
-  "Date": "YYYY-MM-DD HH:MM:SS"
-}`
-  }
-
-  const categoryList = settings.categories.map((category) => `- ${category}`).join('\n')
-
+  const rulesText = settings.usesDefault ? DEFAULT_CLASSIFICATION_RULES_TEXT : settings.rulesText
   return `You are a financial assistant. Extract transaction details from this HDFC Bank debit alert email and classify it.
 
 ===Email Body
@@ -268,12 +240,8 @@ ${timestamp ?? 'Unavailable'}
 3. Extract Date and Time in YYYY-MM-DD HH:MM:SS format. Use the email timestamp time when the body only includes a date.
 4. Classify the transaction.
 
-===Available Categories
-Use one of these categories whenever it fits the transaction:
-${categoryList}
-
 ===Classification Guidelines
-${settings.rulesText}
+${rulesText}
 
 Respond with strict JSON only:
 {

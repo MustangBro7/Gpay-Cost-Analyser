@@ -420,9 +420,9 @@ export function ClassificationSettingsDialog({
                     Classification rules
                   </DialogTitle>
                   <DialogDescription className="max-w-3xl text-sm leading-6 sm:text-base">
-                    Edit the category set and the guidance used for future AI classifications. This
-                    changes incoming classification behavior only; it does not reprocess existing
-                    transactions.
+                    Categories here are only used as saved options in add and reclassify flows. Only
+                    the classification guidance is sent to the model for future AI classifications.
+                    This does not reprocess existing transactions.
                   </DialogDescription>
                 </div>
               </DialogHeader>
@@ -452,7 +452,8 @@ export function ClassificationSettingsDialog({
                     <div className="space-y-1">
                       <h3 className="text-base font-semibold">Categories</h3>
                       <p className="text-sm leading-6 text-muted-foreground">
-                        One category per line. These appear as suggestions in add and reclassify.
+                        One category per line. These are UI-only suggestions for add and reclassify
+                        and are never sent to the model.
                       </p>
                     </div>
                   </div>
@@ -495,8 +496,8 @@ export function ClassificationSettingsDialog({
                       <div className="space-y-1">
                         <h3 className="text-base font-semibold">Classification guidance</h3>
                         <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-                          Keep the instructions explicit. The extraction wrapper stays fixed in code;
-                          only the guidance below is user-editable.
+                          Keep the instructions explicit. The extraction wrapper stays fixed in code,
+                          and only the guidance below is sent to the model.
                         </p>
                       </div>
                     </div>
