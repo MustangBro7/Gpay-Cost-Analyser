@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { AlertTriangle, LogIn, Clock } from 'lucide-react'
+import { useClerk } from '@clerk/nextjs'
 import { useAppSignIn, useAppUser } from '@/lib/auth'
 import { isLocalDevMockMode } from '@/lib/devMode'
 import { Button } from './button'
@@ -15,6 +16,7 @@ interface ReauthWarningProps {
 }
 
 const GMAIL_READONLY_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly'
+const CLERK_GOOGLE_PROVIDERS = new Set(['google', 'oauth_google'])
 
 function formatTimeRemaining(hours: number): string {
   if (hours <= 0) return 'Expired'
@@ -42,6 +44,21 @@ function getSsoCallbackUrl(): string {
   return callbackUrl.toString()
 }
 
+function getExternalVerificationRedirectUrl(
+  externalAccount: {
+    verification?: {
+      externalVerificationRedirectURL?: URL | string | null
+    } | null
+  } | null | undefined
+): string | null {
+  const redirectUrl = externalAccount?.verification?.externalVerificationRedirectURL
+  if (!redirectUrl) {
+    return null
+  }
+
+  return typeof redirectUrl === 'string' ? redirectUrl : redirectUrl.toString()
+}
+
 async function startGoogleRedirect(
   signIn: NonNullable<ReturnType<typeof useAppSignIn>['signIn']>,
   redirectUrlComplete: string
@@ -63,13 +80,29 @@ async function startGoogleReconnect(
 ) {
   if (user) {
     try {
-      await user.createExternalAccount({
-        strategy: 'oauth_google',
-        additionalScopes: [GMAIL_READONLY_SCOPE],
-        redirectUrl: getSsoCallbackUrl(),
-        oidcPrompt: 'consent',
-      })
-      return
+      const existingGoogleAccount = user.externalAccounts.find((account) =>
+        CLERK_GOOGLE_PROVIDERS.has(account.provider)
+      )
+
+      const externalAccount = existingGoogleAccount
+        ? await existingGoogleAccount.reauthorize({
+            additionalScopes: [GMAIL_READONLY_SCOPE],
+            redirectUrl: getSsoCallbackUrl(),
+          })
+        : await user.createExternalAccount({
+            strategy: 'oauth_google',
+            additionalScopes: [GMAIL_READONLY_SCOPE],
+            redirectUrl: getSsoCallbackUrl(),
+            oidcPrompt: 'consent',
+          })
+
+      const externalVerificationRedirectUrl = getExternalVerificationRedirectUrl(externalAccount)
+      if (externalVerificationRedirectUrl) {
+        window.location.assign(externalVerificationRedirectUrl)
+        return
+      }
+
+      console.warn('Google external account reconnect did not return a redirect URL. Falling back to sign-in redirect.')
     } catch (error) {
       console.warn('Google external account reconnect did not start. Falling back to sign-in redirect.', error)
     }
@@ -82,7 +115,9 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
   const { needsReauth, urgentUser, isLoading } = useTokenStatus({ pollInterval: 300000 })
   const { isLoaded, signIn } = useAppSignIn()
   const { isLoaded: isUserLoaded, user } = useAppUser()
+  const { signOut } = useClerk()
   const [isRedirecting, setIsRedirecting] = React.useState(false)
+  const [isSigningOut, setIsSigningOut] = React.useState(false)
   const hasAutoTriggeredRef = React.useRef(false)
   const shouldRender = !isLoading && needsReauth && Boolean(urgentUser)
   const isExpired = urgentUser ? urgentUser.hours_remaining <= 0 : false
@@ -100,7 +135,7 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
       }
 
   const handleReauth = React.useCallback(async () => {
-    if (isRedirecting || !isLoaded || !isUserLoaded || !signIn) {
+    if (isRedirecting || isSigningOut || !isLoaded || !isUserLoaded || !signIn) {
       return
     }
 
@@ -112,7 +147,21 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
       console.error('Failed to start Google re-authentication:', error)
       setIsRedirecting(false)
     }
-  }, [isLoaded, isRedirecting, isUserLoaded, signIn, user])
+  }, [isLoaded, isRedirecting, isSigningOut, isUserLoaded, signIn, user])
+
+  const handleResetSignIn = React.useCallback(async () => {
+    if (isRedirecting || isSigningOut) {
+      return
+    }
+
+    setIsSigningOut(true)
+    try {
+      await signOut({ redirectUrl: getCleanRedirectUrl() })
+    } catch (error) {
+      console.error('Failed to sign out before restarting sign-in:', error)
+      setIsSigningOut(false)
+    }
+  }, [isRedirecting, isSigningOut, signOut])
 
   React.useEffect(() => {
     if (isLocalDevMockMode || !shouldRender || hasAutoTriggeredRef.current || isRedirecting) {
@@ -188,15 +237,26 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
           </div>
           
           <div className="px-6 py-4 bg-muted/30 border-t border-border">
-            <Button 
-              onClick={handleReauth}
-              className="w-full gap-2 rounded-xl"
-              size="lg"
-              disabled={!isLoaded || !isUserLoaded || !signIn || isRedirecting}
-            >
-              <LogIn className="w-4 h-4" />
-              {isRedirecting ? 'Opening sign-in...' : 'Sign In With Google Again'}
-            </Button>
+            <div className="flex flex-col gap-3">
+              <Button
+                onClick={handleReauth}
+                className="w-full gap-2 rounded-xl"
+                size="lg"
+                disabled={!isLoaded || !isUserLoaded || !signIn || isRedirecting || isSigningOut}
+              >
+                <LogIn className="w-4 h-4" />
+                {isRedirecting ? 'Opening sign-in...' : 'Sign In With Google Again'}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full rounded-xl"
+                disabled={isRedirecting || isSigningOut}
+                onClick={handleResetSignIn}
+              >
+                {isSigningOut ? 'Signing out...' : 'Sign Out And Start Over'}
+              </Button>
+            </div>
           </div>
         </div>
       </div>
