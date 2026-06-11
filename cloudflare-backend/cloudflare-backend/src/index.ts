@@ -4,6 +4,7 @@ import { HTTPException } from 'hono/http-exception'
 import { isLocalDevMode, requireAuthenticatedUser } from './auth/clerk'
 import {
   addDevTransaction,
+  devReceiverClassificationStore,
   getDevClassificationSettings,
   getDevTokenStatus,
   getDevTransactions,
@@ -13,6 +14,7 @@ import {
 } from './dev/mock-data'
 import { verifyPubSubPush } from './auth/pubsub'
 import { AiAgentEvalRepository } from './repositories/ai-agent-eval-repository'
+import { ReceiverClassificationRepository } from './repositories/receiver-classification-repository'
 import { TransactionRepository } from './repositories/transaction-repository'
 import { UserRepository } from './repositories/user-repository'
 import { extractAndClassifyTransaction } from './services/classifier'
@@ -86,8 +88,9 @@ function getRepositories(env: Env) {
   const users = new UserRepository(env.DB)
   const aiAgentEvals = new AiAgentEvalRepository(env.DB)
   const transactions = new TransactionRepository(env.DB, env.TRANSACTIONS_BUCKET)
-  const gmail = new GmailService(env, users, transactions)
-  return { users, aiAgentEvals, transactions, gmail }
+  const receiverClassifications = new ReceiverClassificationRepository(env.DB)
+  const gmail = new GmailService(env, users, transactions, receiverClassifications)
+  return { users, aiAgentEvals, transactions, receiverClassifications, gmail }
 }
 
 function parseConfiguredValues(value?: string): Set<string> {
@@ -283,6 +286,9 @@ HDFC Bank`,
     : getRepositories(env).users.getResolvedClassificationSettings(authUser.clerkUserId)
 
   const classificationSettings = await Promise.resolve(settings)
+  const receiverClassifications = isLocalDevMode(env)
+    ? devReceiverClassificationStore
+    : getRepositories(env).receiverClassifications
 
   for (const sample of samples) {
     await extractAndClassifyTransaction(env, sample.body, sample.sentAt, classificationSettings, {
@@ -291,7 +297,7 @@ HDFC Bank`,
       source: sample.source,
       gmailMessageId: sample.gmailMessageId,
       gmailThreadId: sample.gmailThreadId,
-    })
+    }, receiverClassifications)
   }
 
   return samples.length
@@ -527,7 +533,8 @@ app.post('/classification-preview', async (c) => {
       clerkUserId: authUser.clerkUserId,
       clerkEmail: authUser.email,
       source: 'preview',
-    }
+    },
+    devReceiverClassificationStore
   )
   if (!transaction) {
     throw new HttpError(500, 'Failed to classify preview transaction.')
@@ -574,11 +581,11 @@ app.post('/add-transaction', async (c) => {
   ensureDateTime(payload.Date, 'Date')
 
   if (isLocalDevMode(c.env)) {
-    const transaction = addDevTransaction(payload)
+    const transaction = addDevTransaction(authUser, payload)
     return c.json({ status: 'created', transaction })
   }
 
-  const { users, transactions } = getRepositories(c.env)
+  const { users, transactions, receiverClassifications } = getRepositories(c.env)
   await upsertAuthenticatedUser(c.env, users, authUser)
 
   const result = await transactions.mutateTransactions(authUser.clerkUserId, (items) => {
@@ -596,6 +603,8 @@ app.post('/add-transaction', async (c) => {
     return transaction
   })
 
+  await receiverClassifications.upsert(authUser.clerkUserId, result.result.Receiver, result.result.Classification)
+
   return c.json({ status: 'created', transaction: result.result })
 })
 
@@ -604,11 +613,11 @@ app.post('/reclassify', async (c) => {
   const payload = await parseJsonBody<ReclassifyRequest>(c.req.raw)
 
   if (isLocalDevMode(c.env)) {
-    const result = reclassifyDevTransaction(payload)
+    const result = reclassifyDevTransaction(authUser, payload)
     return c.json({ status: 'updated', data: result.transactions, updated_transaction: result.updatedTransaction })
   }
 
-  const { users, transactions } = getRepositories(c.env)
+  const { users, transactions, receiverClassifications } = getRepositories(c.env)
   await upsertAuthenticatedUser(c.env, users, authUser)
 
   const result = await transactions.mutateTransactions(authUser.clerkUserId, (items) => {
@@ -619,6 +628,8 @@ app.post('/reclassify', async (c) => {
     match.Classification = payload.newClassification
     return match
   })
+
+  await receiverClassifications.upsert(authUser.clerkUserId, result.result.Receiver, payload.newClassification)
 
   return c.json({ status: 'updated', data: result.transactions, updated_transaction: result.result })
 })

@@ -6,8 +6,10 @@ import {
   ReclassifyRequest,
   Transaction,
 } from '../types'
+import { ReceiverClassificationStore } from '../repositories/receiver-classification-repository'
 import { getDefaultClassificationSettings } from '../services/classification-settings'
 import { HttpError } from '../utils/http'
+import { normalizeReceiverKey, normalizeReceiverLabel } from '../utils/receiver'
 
 const seedTransactions: Transaction[] = [
   { Amount: '600.00', Receiver: 'MILANO ICE CREAM PRIVATE LIMITED', Date: '2026-04-29 14:52:08', Classification: 'Other' },
@@ -43,6 +45,7 @@ const seedTransactions: Transaction[] = [
 
 let devTransactions = seedTransactions.map(cloneTransaction)
 const devClassificationSettings = new Map<string, Omit<ClassificationSettings, 'usesDefault'>>()
+const devReceiverClassifications = new Map<string, Map<string, { receiver: string; classification: string }>>()
 
 function cloneTransaction(transaction: Transaction): Transaction {
   return {
@@ -53,6 +56,43 @@ function cloneTransaction(transaction: Transaction): Transaction {
 
 function cloneTransactions(transactions: Transaction[]): Transaction[] {
   return transactions.map(cloneTransaction)
+}
+
+function getDevReceiverMemory(clerkUserId: string): Map<string, { receiver: string; classification: string }> {
+  let memory = devReceiverClassifications.get(clerkUserId)
+  if (!memory) {
+    memory = new Map()
+    devReceiverClassifications.set(clerkUserId, memory)
+  }
+  return memory
+}
+
+function upsertDevReceiverClassification(clerkUserId: string, receiver: string, classification: string): void {
+  const receiverLabel = normalizeReceiverLabel(receiver)
+  const receiverKey = normalizeReceiverKey(receiverLabel)
+  if (!receiverKey || !receiverLabel || !classification.trim()) {
+    return
+  }
+
+  getDevReceiverMemory(clerkUserId).set(receiverKey, {
+    receiver: receiverLabel,
+    classification: classification.trim(),
+  })
+}
+
+export const devReceiverClassificationStore: ReceiverClassificationStore = {
+  async findByReceiver(clerkUserId: string, receiver: string) {
+    const receiverKey = normalizeReceiverKey(receiver)
+    if (!receiverKey) {
+      return null
+    }
+
+    return getDevReceiverMemory(clerkUserId).get(receiverKey) ?? null
+  },
+
+  async upsert(clerkUserId: string, receiver: string, classification: string) {
+    upsertDevReceiverClassification(clerkUserId, receiver, classification)
+  },
 }
 
 export function getDevTransactions(): Transaction[] {
@@ -95,7 +135,7 @@ export function upsertDevClassificationSettings(
   }
 }
 
-export function addDevTransaction(payload: AddTransactionRequest): Transaction {
+export function addDevTransaction(user: AuthenticatedUser, payload: AddTransactionRequest): Transaction {
   const exists = devTransactions.some((entry) => entry.Date === payload.Date && entry.Amount === payload.Amount)
   if (exists) {
     throw new HttpError(400, 'A transaction with this date and amount already exists.')
@@ -104,15 +144,16 @@ export function addDevTransaction(payload: AddTransactionRequest): Transaction {
   const transaction: Transaction = {
     Amount: payload.Amount.replace(/,/g, ''),
     Classification: payload.Classification,
-    Receiver: payload.Receiver.trim(),
+    Receiver: normalizeReceiverLabel(payload.Receiver),
     Date: payload.Date,
   }
 
   devTransactions.push(transaction)
+  upsertDevReceiverClassification(user.clerkUserId, transaction.Receiver, transaction.Classification)
   return cloneTransaction(transaction)
 }
 
-export function reclassifyDevTransaction(payload: ReclassifyRequest): {
+export function reclassifyDevTransaction(user: AuthenticatedUser, payload: ReclassifyRequest): {
   transactions: Transaction[]
   updatedTransaction: Transaction
 } {
@@ -122,6 +163,7 @@ export function reclassifyDevTransaction(payload: ReclassifyRequest): {
   }
 
   match.Classification = payload.newClassification
+  upsertDevReceiverClassification(user.clerkUserId, match.Receiver, match.Classification)
 
   return {
     transactions: cloneTransactions(devTransactions),

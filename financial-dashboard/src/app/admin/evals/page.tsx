@@ -1,12 +1,12 @@
 'use client'
 
 import * as React from "react"
+import Image from "next/image"
 import Link from "next/link"
 import { format } from "date-fns"
 import {
   AlertTriangle,
   ArrowLeft,
-  BrainCircuit,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -14,6 +14,7 @@ import {
   LoaderCircle,
   RefreshCw,
   Search,
+  SearchX,
   ShieldAlert,
   Sparkles,
   Users,
@@ -96,11 +97,11 @@ function SnippetPanel({
   className?: string
 }) {
   return (
-    <section className={cn("rounded-[1.5rem] border border-border/70 bg-background/75 p-4 shadow-sm", className)}>
+    <section className={cn("rounded-[1.75rem] border border-border/70 bg-card/90 p-4 shadow-sm", className)}>
       <div className="mb-3 flex items-center justify-between gap-3">
         <p className="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">{label}</p>
       </div>
-      <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap break-words rounded-[1.1rem] bg-muted/60 p-4 font-mono text-xs leading-6 text-foreground">
+      <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap break-words rounded-[1.25rem] bg-muted/60 p-4 font-mono text-xs leading-6 text-foreground">
         {value}
       </pre>
     </section>
@@ -237,81 +238,103 @@ export default function AdminEvalsPage() {
     }
   }, [apiUrl, authedFetch, fetchPage])
 
+  const userEmail = user?.primaryEmailAddress?.emailAddress
+
   return (
     <>
       <AppSignedOut>
-        <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-4 py-6 sm:px-6 lg:px-8">
-          <div className="flex justify-end">
-            <ThemeToggle />
-          </div>
-          <div className="flex flex-1 items-center justify-center">
-            <Card className="w-full max-w-2xl rounded-[2rem] border-border/70 bg-background/80 shadow-xl backdrop-blur">
-              <CardHeader className="space-y-4">
-                <Badge variant="outline" className="w-fit rounded-full px-3 py-1">
-                  Admin AI Eval Console
+        <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -top-40 left-1/2 h-[26rem] w-[44rem] -translate-x-1/2 rounded-full bg-primary/10 blur-3xl"
+          />
+          <Card className="relative w-full max-w-md rounded-[1.75rem] border-border/70 bg-card/90 text-center shadow-xl backdrop-blur">
+            <CardHeader className="items-center gap-4">
+              <Image
+                src="/app-logo.png"
+                alt="GPay Cost Analyzer logo"
+                width={56}
+                height={56}
+                className="mx-auto rounded-full shadow-sm ring-1 ring-border/70"
+              />
+              <div className="space-y-1.5">
+                <Badge variant="outline" className="mx-auto rounded-full px-3 py-1">
+                  Admin only
                 </Badge>
-                <CardTitle className="text-3xl font-semibold tracking-tight">
-                  Sign in to inspect model prompts and outputs.
+                <CardTitle className="text-2xl font-semibold tracking-tight">
+                  Sign in to review model traces
                 </CardTitle>
-                <CardDescription className="max-w-xl text-base leading-7">
-                  This page is restricted to administrator accounts and exposes full prompt and output history across all users.
+                <CardDescription className="leading-6">
+                  This console exposes full prompt and output history across all users, so it is
+                  restricted to administrator accounts.
                 </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <GoogleSignInButton redirectUrlComplete="/admin/evals" />
-                <Button asChild variant="outline" className="rounded-full">
-                  <Link href="/">
-                    <ArrowLeft className="size-4" />
-                    Back to home
-                  </Link>
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
+              </div>
+            </CardHeader>
+            <CardContent className="flex flex-col items-center gap-3">
+              <GoogleSignInButton redirectUrlComplete="/admin/evals" />
+              <Button asChild variant="ghost" className="rounded-full">
+                <Link href="/">
+                  <ArrowLeft className="size-4" />
+                  Back to home
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
         </main>
       </AppSignedOut>
 
       <AppSignedIn>
-        <main className="mx-auto flex min-h-screen w-full max-w-[94rem] flex-col gap-6 px-4 py-4 sm:px-6 sm:py-6">
-          <header className="overflow-hidden rounded-[2rem] border border-border/70 bg-background/80 shadow-sm backdrop-blur">
-            <div className="grid grid-cols-1 gap-5 p-5 sm:p-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,0.65fr)]">
-              <div className="space-y-4">
-                <div className="flex flex-wrap items-center gap-3">
-                  <Badge className="rounded-full px-3 py-1">
-                    <BrainCircuit className="size-3.5" />
-                    AI agent audit trail
-                  </Badge>
-                  <Badge variant="outline" className="rounded-full px-3 py-1">
-                    Admin only
-                  </Badge>
+        <header className="sticky top-0 z-40 border-b border-border/60 bg-background/75 backdrop-blur-xl">
+          <div className="mx-auto flex h-16 w-full max-w-[94rem] items-center justify-between gap-3 px-4 sm:px-6">
+            <Link href="/" className="flex min-w-0 items-center gap-2.5">
+              <Image
+                src="/app-logo.png"
+                alt="GPay Cost Analyzer logo"
+                width={36}
+                height={36}
+                className="rounded-full shadow-sm ring-1 ring-border/70"
+              />
+              <span className="truncate text-sm font-semibold tracking-tight sm:text-base">
+                GPay Cost Analyzer
+              </span>
+            </Link>
+            <div className="flex items-center gap-2">
+              <Button asChild variant="outline" className="h-10 rounded-full px-3 sm:px-4">
+                <Link href="/dashboard">
+                  <ArrowLeft className="size-4" />
+                  <span className="hidden sm:inline">Dashboard</span>
+                </Link>
+              </Button>
+              {userEmail ? (
+                <div className="hidden items-center gap-2 rounded-full border border-border/70 bg-card/80 py-1 pl-1 pr-3 text-sm text-muted-foreground shadow-sm lg:flex">
+                  <span className="flex size-7 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold uppercase text-primary">
+                    {userEmail[0]}
+                  </span>
+                  <span className="max-w-[14rem] truncate">{userEmail}</span>
                 </div>
-                <div className="space-y-3">
-                  <h1 className="max-w-3xl text-3xl font-semibold tracking-tight sm:text-4xl">
-                    Every Gemini prompt, output, fallback, and failure in one review surface.
-                  </h1>
-                  <p className="max-w-3xl text-sm leading-7 text-muted-foreground sm:text-base">
-                    Use this page to audit extraction behavior across all users, isolate parse failures, and inspect the exact prompt that was sent for any transaction classification run.
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex flex-col justify-between gap-3 rounded-[1.75rem] border border-border/70 bg-muted/35 p-4">
-                <div className="rounded-[1.25rem] border border-border/60 bg-background/85 p-4">
-                  <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Signed in</p>
-                  <p className="mt-2 truncate text-sm font-medium">{user?.primaryEmailAddress?.emailAddress ?? "Unknown user"}</p>
-                </div>
-                <div className="flex items-center justify-between gap-2 rounded-[1.25rem] border border-border/60 bg-background/85 p-4">
-                  <Button asChild variant="outline" className="rounded-full">
-                    <Link href="/dashboard">
-                      <ArrowLeft className="size-4" />
-                      Dashboard
-                    </Link>
-                  </Button>
-                  <ThemeToggle />
-                </div>
-              </div>
+              ) : null}
+              <ThemeToggle />
             </div>
-          </header>
+          </div>
+        </header>
+
+        <main className="mx-auto flex w-full max-w-[94rem] flex-col gap-6 px-4 py-6 sm:px-6">
+          <section className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+                  AI agent audit trail
+                </h1>
+                <Badge variant="outline" className="rounded-full px-3 py-1">
+                  Admin only
+                </Badge>
+              </div>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
+                Audit extraction behavior across all users, isolate parse failures, and inspect the
+                exact prompt sent for any transaction classification run.
+              </p>
+            </div>
+          </section>
 
           {isForbidden ? (
             <Card className="rounded-[1.75rem] border-destructive/35 bg-destructive/5 shadow-sm">
@@ -327,34 +350,55 @@ export default function AdminEvalsPage() {
             </Card>
           ) : (
             <>
-              <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <StatCard
-                  icon={Database}
-                  label="Matching traces"
-                  value={total}
-                  hint="Total traces for the current filters."
-                />
-                <StatCard
-                  icon={CheckCircle2}
-                  label="Successes on this page"
-                  value={pageSummary.successCount}
-                  hint="Model calls that parsed cleanly."
-                />
+              <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+                <Card className="relative col-span-2 min-w-0 gap-3 overflow-hidden rounded-[1.75rem] border-transparent bg-primary py-5 text-primary-foreground shadow-lg">
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute -right-16 -top-20 size-56 rounded-full bg-primary-foreground/10 blur-2xl"
+                  />
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute -bottom-24 -left-10 size-48 rounded-full bg-primary-foreground/10 blur-2xl"
+                  />
+                  <CardHeader className="relative gap-2.5">
+                    <CardDescription className="flex items-center gap-2.5 text-primary-foreground/80">
+                      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary-foreground/15">
+                        <Database className="size-4" />
+                      </span>
+                      Matching traces
+                    </CardDescription>
+                    <CardTitle className="text-3xl font-semibold tracking-tight sm:text-4xl">
+                      {total}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="relative flex flex-wrap items-center gap-x-4 gap-y-1 pt-0 text-sm text-primary-foreground/80">
+                    <span className="inline-flex items-center gap-1.5">
+                      <CheckCircle2 className="size-4" />
+                      {pageSummary.successCount} parsed cleanly on this page
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <AlertTriangle className="size-4" />
+                      {pageSummary.errorCount} failed
+                    </span>
+                  </CardContent>
+                </Card>
                 <StatCard
                   icon={AlertTriangle}
                   label="Errors on this page"
                   value={pageSummary.errorCount}
                   hint="Calls that failed or could not be parsed."
+                  className="min-w-0"
                 />
                 <StatCard
                   icon={Users}
                   label="Users represented"
                   value={pageSummary.uniqueUsers}
                   hint="Distinct accounts on this page."
+                  className="min-w-0"
                 />
               </section>
 
-              <Card className="rounded-[1.75rem] border-border/70 bg-background/80 shadow-sm">
+              <Card className="rounded-[1.75rem] border-border/70 bg-card/90 shadow-sm">
                 <CardContent className="grid grid-cols-1 gap-3 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_auto_auto]">
                   <form onSubmit={handleSearchSubmit} className="flex flex-col gap-3 sm:flex-row">
                     <div className="relative min-w-0 flex-1">
@@ -437,7 +481,7 @@ export default function AdminEvalsPage() {
               ) : null}
 
               <section className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.78fr)_minmax(0,1.22fr)]">
-                <Card className="rounded-[1.75rem] border-border/70 bg-background/85 shadow-sm">
+                <Card className="min-w-0 rounded-[1.75rem] border-border/70 bg-card/90 shadow-sm">
                   <CardHeader className="border-b border-border/60 pb-4">
                     <div className="flex items-center justify-between gap-3">
                       <div>
@@ -451,8 +495,29 @@ export default function AdminEvalsPage() {
                   </CardHeader>
                   <CardContent className="space-y-3 p-3 sm:p-4">
                     {items.length === 0 && !isLoading ? (
-                      <div className="rounded-[1.25rem] border border-dashed border-border/70 bg-muted/20 p-6 text-sm text-muted-foreground">
-                        No traces matched the current filters.
+                      <div className="flex flex-col items-center gap-4 rounded-[1.25rem] border border-dashed border-border/70 bg-muted/20 px-6 py-10 text-center">
+                        <span className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+                          <SearchX className="size-6" />
+                        </span>
+                        <div className="space-y-1.5">
+                          <p className="text-base font-semibold tracking-tight">No traces in this view</p>
+                          <p className="text-sm leading-6 text-muted-foreground">
+                            Try a different status filter or broaden the search query.
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-10 rounded-full px-4"
+                          onClick={() => {
+                            setOffset(0)
+                            setQueryInput("")
+                            setQuery("")
+                            setStatus("all")
+                          }}
+                        >
+                          Clear filters
+                        </Button>
                       </div>
                     ) : null}
 
@@ -520,8 +585,8 @@ export default function AdminEvalsPage() {
                   </CardContent>
                 </Card>
 
-                <div className="grid grid-cols-1 gap-4">
-                  <Card className="rounded-[1.75rem] border-border/70 bg-background/85 shadow-sm">
+                <div className="grid min-w-0 grid-cols-1 gap-4">
+                  <Card className="rounded-[1.75rem] border-border/70 bg-card/90 shadow-sm">
                     <CardHeader className="border-b border-border/60 pb-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
@@ -539,17 +604,17 @@ export default function AdminEvalsPage() {
                       </div>
                     </CardHeader>
                     <CardContent className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 sm:p-6 xl:grid-cols-4">
-                      <div className="rounded-[1.2rem] border border-border/60 bg-muted/20 p-4">
+                      <div className="rounded-[1.25rem] border border-border/60 bg-muted/20 p-4">
                         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">User</p>
-                        <p className="mt-2 text-sm font-medium">{selectedTrace?.clerk_email ?? "No trace selected"}</p>
+                        <p className="mt-2 truncate text-sm font-medium">{selectedTrace?.clerk_email ?? "No trace selected"}</p>
                         <p className="mt-1 break-all text-xs text-muted-foreground">{selectedTrace?.clerk_user_id ?? ""}</p>
                       </div>
-                      <div className="rounded-[1.2rem] border border-border/60 bg-muted/20 p-4">
+                      <div className="rounded-[1.25rem] border border-border/60 bg-muted/20 p-4">
                         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Model</p>
-                        <p className="mt-2 text-sm font-medium">{selectedTrace?.model ?? "Unavailable"}</p>
+                        <p className="mt-2 truncate text-sm font-medium">{selectedTrace?.model ?? "Unavailable"}</p>
                         <p className="mt-1 text-xs text-muted-foreground">{formatLatency(selectedTrace?.latency_ms ?? null)}</p>
                       </div>
-                      <div className="rounded-[1.2rem] border border-border/60 bg-muted/20 p-4">
+                      <div className="rounded-[1.25rem] border border-border/60 bg-muted/20 p-4">
                         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Status</p>
                         <div className="mt-2 flex items-center gap-2">
                           {selectedTrace ? (
@@ -567,7 +632,7 @@ export default function AdminEvalsPage() {
                           Source: {selectedTrace?.source ?? "n/a"}
                         </p>
                       </div>
-                      <div className="rounded-[1.2rem] border border-border/60 bg-muted/20 p-4">
+                      <div className="rounded-[1.25rem] border border-border/60 bg-muted/20 p-4">
                         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Created</p>
                         <p className="mt-2 text-sm font-medium">{formatTimestamp(selectedTrace?.created_at ?? null)}</p>
                         <p className="mt-1 text-xs text-muted-foreground">
@@ -603,7 +668,7 @@ export default function AdminEvalsPage() {
                     />
                   </div>
 
-                  <Card className="rounded-[1.75rem] border-border/70 bg-background/85 shadow-sm">
+                  <Card className="rounded-[1.75rem] border-border/70 bg-card/90 shadow-sm">
                     <CardHeader>
                       <div className="flex items-center gap-3">
                         <Database className="size-5 text-muted-foreground" />
@@ -614,15 +679,15 @@ export default function AdminEvalsPage() {
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <div className="rounded-[1.2rem] border border-border/60 bg-muted/20 p-4">
+                      <div className="rounded-[1.25rem] border border-border/60 bg-muted/20 p-4">
                         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Email timestamp</p>
                         <p className="mt-2 text-sm font-medium">{formatTimestamp(selectedTrace?.email_timestamp ?? null)}</p>
                       </div>
-                      <div className="rounded-[1.2rem] border border-border/60 bg-muted/20 p-4">
+                      <div className="rounded-[1.25rem] border border-border/60 bg-muted/20 p-4">
                         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Gmail message id</p>
                         <p className="mt-2 break-all font-mono text-xs">{selectedTrace?.gmail_message_id ?? "Unavailable"}</p>
                       </div>
-                      <div className="rounded-[1.2rem] border border-border/60 bg-muted/20 p-4 sm:col-span-2">
+                      <div className="rounded-[1.25rem] border border-border/60 bg-muted/20 p-4 sm:col-span-2">
                         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Gmail thread id</p>
                         <p className="mt-2 break-all font-mono text-xs">{selectedTrace?.gmail_thread_id ?? "Unavailable"}</p>
                       </div>
