@@ -68,9 +68,11 @@ const getPresets = () => {
 export function DateRangeForm({
   onDataFetched,
   actions,
+  showInlinePresets = false,
 }: {
   onDataFetched: (data: Transaction[], range: { from: Date; to: Date }) => void
   actions?: React.ReactNode
+  showInlinePresets?: boolean
 }){
   const currentMonth = getCurrentMonthRange()
   const [date, setDate] = React.useState<DateRange | undefined>({
@@ -152,6 +154,10 @@ export function DateRangeForm({
     setIsPopoverOpen(false)
   }
 
+  const isPresetActive = (range: DateRange) =>
+    range.from?.toDateString() === date?.from?.toDateString() &&
+    range.to?.toDateString() === date?.to?.toDateString()
+
   return (
     <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
       <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
@@ -208,6 +214,24 @@ export function DateRangeForm({
           </div>
         </PopoverContent>
       </Popover>
+
+      {showInlinePresets ? (
+        <div className="hidden flex-wrap items-center gap-1.5 xl:flex">
+          {getPresets().map((preset) => (
+            <Button
+              key={preset.label}
+              type="button"
+              variant={isPresetActive(preset.range) ? "default" : "ghost"}
+              size="sm"
+              className="h-8 rounded-full px-3 text-xs"
+              disabled={isLoading}
+              onClick={() => handlePresetSelect(preset.range)}
+            >
+              {preset.label}
+            </Button>
+          ))}
+        </div>
+      ) : null}
 
       {actions ? <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">{actions}</div> : null}
     </div>

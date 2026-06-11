@@ -24,7 +24,7 @@ export const description = "A bar chart with a custom label"
 const chartConfig = {
   total: {
     label: "Total Spend",
-    color: "var(--chart-2)",
+    color: "var(--chart-1)",
   },
   label: {
     color: "var(--primary-foreground)",
@@ -86,7 +86,7 @@ export function VerticalBarChart({
   }, [data])
 
   return (
-    <Card className="border-border/70 bg-card/90 shadow-sm">
+    <Card className="flex h-full flex-col rounded-[1.75rem] border-border/70 bg-card/90 shadow-sm">
       <CardHeader>
         <CardTitle>Category Ranking</CardTitle>
         <CardDescription>
@@ -95,8 +95,8 @@ export function VerticalBarChart({
             : "No transactions in the selected range"}
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <ChartContainer config={chartConfig} className="overflow-y-auto">
+      <CardContent className="flex flex-1 flex-col">
+        <ChartContainer config={chartConfig} className="aspect-auto h-64 w-full">
           <BarChart
             accessibilityLayer
             data={paginated}
@@ -165,7 +165,7 @@ export function VerticalBarChart({
         </ChartContainer>
 
         {totalPages > 1 ? (
-          <div className="mt-4 flex items-center justify-between">
+          <div className="mt-auto flex items-center justify-between pt-4">
             <Button
               size="sm"
               variant="outline"

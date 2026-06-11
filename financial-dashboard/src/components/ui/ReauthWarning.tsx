@@ -111,7 +111,17 @@ async function startGoogleReconnect(
   await startGoogleRedirect(signIn, redirectUrlComplete)
 }
 
-export function ReauthWarning({ className, userId, userEmail }: ReauthWarningProps) {
+export function ReauthWarning(props: ReauthWarningProps) {
+  // useClerk requires ClerkProvider, which AuthProvider skips in mock mode —
+  // bail out before any Clerk hooks run.
+  if (isLocalDevMockMode) {
+    return null
+  }
+
+  return <ReauthWarningInner {...props} />
+}
+
+function ReauthWarningInner({ className, userId, userEmail }: ReauthWarningProps) {
   const { needsReauth, urgentUser, isLoading } = useTokenStatus({ pollInterval: 300000 })
   const { isLoaded, signIn } = useAppSignIn()
   const { isLoaded: isUserLoaded, user } = useAppUser()
@@ -164,7 +174,7 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
   }, [isRedirecting, isSigningOut, signOut])
 
   React.useEffect(() => {
-    if (isLocalDevMockMode || !shouldRender || hasAutoTriggeredRef.current || isRedirecting) {
+    if (!shouldRender || hasAutoTriggeredRef.current || isRedirecting) {
       return
     }
 
@@ -176,10 +186,6 @@ export function ReauthWarning({ className, userId, userEmail }: ReauthWarningPro
     hasAutoTriggeredRef.current = true
     void handleReauth()
   }, [handleReauth, isRedirecting, shouldRender])
-
-  if (isLocalDevMockMode) {
-    return null
-  }
 
   if (!shouldRender || !urgentUser) {
     return null
