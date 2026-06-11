@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run lint)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(npm ls *)"
+    ]
+  }
+}

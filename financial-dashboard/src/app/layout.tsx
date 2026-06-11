@@ -17,9 +17,17 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+
 export const metadata: Metadata = {
-  title: "GPay Cost Analyzer",
-  description: "Track, classify, and analyze Google Pay spending across custom date ranges.",
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: "GPay Cost Analyzer — Google Pay Spending Tracker & Analytics",
+    template: "%s · GPay Cost Analyzer",
+  },
+  description:
+    "Track, classify, and analyze Google Pay spending across custom date ranges. Automatic Gmail receipt import with AI-powered transaction classification.",
+  applicationName: "GPay Cost Analyzer",
   icons: {
     icon: "/app-logo.png",
     apple: "/app-logo.png",

@@ -10,7 +10,11 @@ function getSsoCallbackUrl(): string {
   return new URL('/sso-callback', window.location.origin).toString()
 }
 
-export function GoogleSignInButton() {
+export function GoogleSignInButton({
+  redirectUrlComplete = '/dashboard',
+}: {
+  redirectUrlComplete?: string
+}) {
   const { isLoaded, signIn } = useAppSignIn()
   const [isRedirecting, setIsRedirecting] = React.useState(false)
 
@@ -24,7 +28,7 @@ export function GoogleSignInButton() {
       await signIn.authenticateWithRedirect({
         strategy: 'oauth_google',
         redirectUrl: getSsoCallbackUrl(),
-        redirectUrlComplete: '/',
+        redirectUrlComplete,
         continueSignIn: true,
         continueSignUp: true,
         oidcPrompt: 'consent',
@@ -33,7 +37,7 @@ export function GoogleSignInButton() {
       console.error('Failed to start Google sign-in:', error)
       setIsRedirecting(false)
     }
-  }, [isLoaded, isRedirecting, signIn])
+  }, [isLoaded, isRedirecting, redirectUrlComplete, signIn])
 
   return (
     <>

@@ -21,7 +21,7 @@ import { Transaction } from "@/types/Transaction"
 const chartConfig = {
   total: {
     label: "Total Spend",
-    color: "var(--chart-2)",
+    color: "var(--chart-1)",
   },
 } satisfies ChartConfig
 
@@ -53,14 +53,14 @@ export function GlowingLineChart({ data }: { data?: Transaction[] }) {
   }, [daily])
 
   return (
-    <Card className="border-border/70 bg-card/90 shadow-sm">
+    <Card className="flex h-full flex-col rounded-[1.75rem] border-border/70 bg-card/90 shadow-sm">
       <CardHeader>
         <CardTitle>Daily Spend Trend</CardTitle>
         <CardDescription>{rangeLabel}</CardDescription>
       </CardHeader>
 
-      <CardContent>
-        <ChartContainer config={chartConfig}>
+      <CardContent className="flex-1">
+        <ChartContainer config={chartConfig} className="aspect-auto h-64 w-full sm:h-80">
           <LineChart
             accessibilityLayer
             data={daily}
@@ -84,7 +84,7 @@ export function GlowingLineChart({ data }: { data?: Transaction[] }) {
             <Line
               dataKey="total"
               type="monotone"
-              stroke="var(--chart-2)"
+              stroke="var(--chart-1)"
               dot={false}
               strokeWidth={2}
               filter="url(#rainbow-line-glow)"
@@ -92,7 +92,7 @@ export function GlowingLineChart({ data }: { data?: Transaction[] }) {
               <Brush
     dataKey="date"
     height={30}
-    stroke="var(--chart-2)"
+    stroke="var(--chart-1)"
     travellerWidth={10}
     // padding= "5px"
     tickFormatter={(value) => formatTransactionDateKey(String(value))}

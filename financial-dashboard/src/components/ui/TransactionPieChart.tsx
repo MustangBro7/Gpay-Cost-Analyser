@@ -1,8 +1,8 @@
 'use client'
 
 import * as React from "react"
-import { TrendingUp } from "lucide-react"
 import { Cell, Label, Pie, PieChart } from "recharts"
+import { cn } from "@/lib/utils"
 import {
   Card,
   CardContent,
@@ -68,20 +68,22 @@ export function PieChartComponent({
   )
 
   const hasActiveClassification = Boolean(activeClassification)
+  const legendData = [...coloredData].sort((a, b) => b.amount - a.amount)
+  const formattedTotal = `₹${total.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`
 
   return (
-    <Card className="flex h-full flex-col border-border/70 bg-card/90 shadow-sm">
+    <Card className="flex h-full flex-col rounded-[1.75rem] border-border/70 bg-card/90 shadow-sm">
       <CardHeader className="pb-2">
         <CardTitle>Spending by Classification</CardTitle>
         <CardDescription>
-          Compare category share and click a slice to focus the dashboard.
+          Click a slice or category to focus the dashboard.
         </CardDescription>
       </CardHeader>
 
-      <CardContent className="px-2 pb-2 sm:px-6">
+      <CardContent className="flex-1 px-2 pb-2 sm:px-6">
         <ChartContainer
           config={chartConfig}
-          className="mx-auto aspect-square max-h-[28rem]"
+          className="mx-auto aspect-square max-h-[19rem]"
         >
           <PieChart>
             <ChartTooltip
@@ -92,7 +94,8 @@ export function PieChartComponent({
               data={coloredData}
               dataKey="amount"
               nameKey="classification"
-              innerRadius={92}
+              innerRadius="58%"
+              outerRadius="85%"
               stroke="var(--background)"
               strokeWidth={6}
               onClick={(_, index) => {
@@ -125,14 +128,14 @@ export function PieChartComponent({
                         <tspan
                           x={viewBox.cx}
                           y={viewBox.cy}
-                          className="fill-foreground text-3xl font-bold"
+                          className="fill-foreground text-2xl font-bold"
                         >
-                          ₹{total.toFixed(0)}
+                          {formattedTotal}
                         </tspan>
                         <tspan
                           x={viewBox.cx}
-                          y={(viewBox.cy || 0) + 24}
-                          className="fill-muted-foreground"
+                          y={(viewBox.cy || 0) + 22}
+                          className="fill-muted-foreground text-xs"
                         >
                           Total Spend
                         </tspan>
@@ -146,13 +149,35 @@ export function PieChartComponent({
         </ChartContainer>
       </CardContent>
 
-      <CardFooter className="flex flex-col items-start gap-2 border-t border-border/70 pt-5 text-sm">
-        <div className="flex items-center gap-2 font-medium leading-none">
-          You spent ₹{total.toFixed(0)} <TrendingUp className="h-4 w-4" />
-        </div>
-        <div className="leading-none text-muted-foreground">
-          Based on selected date range
-        </div>
+      <CardFooter className="mt-auto border-t border-border/70 pt-4">
+        <ul className="grid w-full grid-cols-1 gap-x-4 gap-y-1.5 sm:grid-cols-2">
+          {legendData.map((entry) => {
+            const isActive = activeClassification === entry.classification
+            const isDimmed = hasActiveClassification && !isActive
+            return (
+              <li key={entry.classification} className="min-w-0">
+                <button
+                  type="button"
+                  onClick={() => onClassificationSelect(entry.classification)}
+                  className={cn(
+                    "flex w-full min-w-0 items-center gap-2 rounded-full px-1 py-0.5 text-left text-sm transition-opacity hover:opacity-100",
+                    isDimmed && "opacity-50"
+                  )}
+                >
+                  <span
+                    aria-hidden
+                    className="size-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: entry.fill }}
+                  />
+                  <span className="min-w-0 truncate">{entry.classification}</span>
+                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                    {total > 0 ? Math.round((entry.amount / total) * 100) : 0}%
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
       </CardFooter>
     </Card>
   )

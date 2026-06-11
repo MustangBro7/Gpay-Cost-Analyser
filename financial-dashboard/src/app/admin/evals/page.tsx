@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   BrainCircuit,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Database,
@@ -15,6 +16,7 @@ import {
   Search,
   ShieldAlert,
   Sparkles,
+  Users,
 } from "lucide-react"
 import { AppSignedIn, AppSignedOut, useAppUser } from "@/lib/auth"
 import { useAuthedFetch } from "@/lib/useAuthedFetch"
@@ -24,6 +26,7 @@ import { ThemeToggle } from "@/components/theme-toggle"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { StatCard } from "@/components/ui/StatCard"
 import { Input } from "@/components/ui/input"
 import { AdminAiEval, AdminAiEvalListResponse, AiEvalStatus } from "@/types/AdminAiEval"
 import { cn } from "@/lib/utils"
@@ -63,14 +66,14 @@ function formatJsonBlock(value: string | null) {
   }
 }
 
-function statusTone(status: AiEvalStatus) {
+function statusBadgeClass(status: AiEvalStatus) {
   if (status === "success") {
-    return "default"
+    return "border-emerald-500/20 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
   }
   if (status === "error") {
-    return "destructive"
+    return "border-destructive/20 bg-destructive/10 text-destructive"
   }
-  return "secondary"
+  return "border-border bg-muted/60 text-muted-foreground"
 }
 
 function statusLabel(status: AiEvalStatus) {
@@ -255,11 +258,11 @@ export default function AdminEvalsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <GoogleSignInButton />
+                <GoogleSignInButton redirectUrlComplete="/admin/evals" />
                 <Button asChild variant="outline" className="rounded-full">
                   <Link href="/">
                     <ArrowLeft className="size-4" />
-                    Back to dashboard
+                    Back to home
                   </Link>
                 </Button>
               </CardContent>
@@ -271,7 +274,7 @@ export default function AdminEvalsPage() {
       <AppSignedIn>
         <main className="mx-auto flex min-h-screen w-full max-w-[94rem] flex-col gap-6 px-4 py-4 sm:px-6 sm:py-6">
           <header className="overflow-hidden rounded-[2rem] border border-border/70 bg-background/80 shadow-sm backdrop-blur">
-            <div className="grid gap-5 p-5 sm:p-6 xl:grid-cols-[1.35fr_0.65fr]">
+            <div className="grid grid-cols-1 gap-5 p-5 sm:p-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,0.65fr)]">
               <div className="space-y-4">
                 <div className="flex flex-wrap items-center gap-3">
                   <Badge className="rounded-full px-3 py-1">
@@ -292,18 +295,14 @@ export default function AdminEvalsPage() {
                 </div>
               </div>
 
-              <div className="grid gap-3 rounded-[1.75rem] border border-border/70 bg-muted/35 p-4 sm:grid-cols-3 xl:grid-cols-1">
+              <div className="flex flex-col justify-between gap-3 rounded-[1.75rem] border border-border/70 bg-muted/35 p-4">
                 <div className="rounded-[1.25rem] border border-border/60 bg-background/85 p-4">
                   <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Signed in</p>
                   <p className="mt-2 truncate text-sm font-medium">{user?.primaryEmailAddress?.emailAddress ?? "Unknown user"}</p>
                 </div>
-                <div className="rounded-[1.25rem] border border-border/60 bg-background/85 p-4">
-                  <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Visible traces</p>
-                  <p className="mt-2 text-2xl font-semibold">{total}</p>
-                </div>
                 <div className="flex items-center justify-between gap-2 rounded-[1.25rem] border border-border/60 bg-background/85 p-4">
                   <Button asChild variant="outline" className="rounded-full">
-                    <Link href="/">
+                    <Link href="/dashboard">
                       <ArrowLeft className="size-4" />
                       Dashboard
                     </Link>
@@ -328,29 +327,35 @@ export default function AdminEvalsPage() {
             </Card>
           ) : (
             <>
-              <section className="grid gap-4 md:grid-cols-3">
-                <Card className="rounded-[1.75rem] border-border/70 bg-card/90 shadow-sm">
-                  <CardHeader>
-                    <CardDescription>Successes on this page</CardDescription>
-                    <CardTitle className="text-3xl">{pageSummary.successCount}</CardTitle>
-                  </CardHeader>
-                </Card>
-                <Card className="rounded-[1.75rem] border-border/70 bg-card/90 shadow-sm">
-                  <CardHeader>
-                    <CardDescription>Errors on this page</CardDescription>
-                    <CardTitle className="text-3xl">{pageSummary.errorCount}</CardTitle>
-                  </CardHeader>
-                </Card>
-                <Card className="rounded-[1.75rem] border-border/70 bg-card/90 shadow-sm">
-                  <CardHeader>
-                    <CardDescription>Users represented</CardDescription>
-                    <CardTitle className="text-3xl">{pageSummary.uniqueUsers}</CardTitle>
-                  </CardHeader>
-                </Card>
+              <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <StatCard
+                  icon={Database}
+                  label="Matching traces"
+                  value={total}
+                  hint="Total traces for the current filters."
+                />
+                <StatCard
+                  icon={CheckCircle2}
+                  label="Successes on this page"
+                  value={pageSummary.successCount}
+                  hint="Model calls that parsed cleanly."
+                />
+                <StatCard
+                  icon={AlertTriangle}
+                  label="Errors on this page"
+                  value={pageSummary.errorCount}
+                  hint="Calls that failed or could not be parsed."
+                />
+                <StatCard
+                  icon={Users}
+                  label="Users represented"
+                  value={pageSummary.uniqueUsers}
+                  hint="Distinct accounts on this page."
+                />
               </section>
 
               <Card className="rounded-[1.75rem] border-border/70 bg-background/80 shadow-sm">
-                <CardContent className="grid gap-3 p-4 sm:p-6 lg:grid-cols-[1fr_auto_auto]">
+                <CardContent className="grid grid-cols-1 gap-3 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_auto_auto]">
                   <form onSubmit={handleSearchSubmit} className="flex flex-col gap-3 sm:flex-row">
                     <div className="relative min-w-0 flex-1">
                       <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -372,7 +377,7 @@ export default function AdminEvalsPage() {
                         key={option}
                         type="button"
                         variant={status === option ? "default" : "outline"}
-                        className="h-11 rounded-full px-4"
+                        className="h-11 rounded-full px-4 capitalize"
                         onClick={() => {
                           setOffset(0)
                           setStatus(option)
@@ -431,7 +436,7 @@ export default function AdminEvalsPage() {
                 </Card>
               ) : null}
 
-              <section className="grid gap-4 xl:grid-cols-[0.78fr_1.22fr]">
+              <section className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,0.78fr)_minmax(0,1.22fr)]">
                 <Card className="rounded-[1.75rem] border-border/70 bg-background/85 shadow-sm">
                   <CardHeader className="border-b border-border/60 pb-4">
                     <div className="flex items-center justify-between gap-3">
@@ -466,7 +471,10 @@ export default function AdminEvalsPage() {
                           )}
                         >
                           <div className="flex flex-wrap items-center gap-2">
-                            <Badge variant={statusTone(item.status)} className="rounded-full px-2.5 py-0.5">
+                            <Badge
+                              variant="outline"
+                              className={cn("rounded-full px-2.5 py-0.5", statusBadgeClass(item.status))}
+                            >
                               {statusLabel(item.status)}
                             </Badge>
                             <Badge variant="outline" className="rounded-full px-2.5 py-0.5 uppercase">
@@ -512,7 +520,7 @@ export default function AdminEvalsPage() {
                   </CardContent>
                 </Card>
 
-                <div className="grid gap-4">
+                <div className="grid grid-cols-1 gap-4">
                   <Card className="rounded-[1.75rem] border-border/70 bg-background/85 shadow-sm">
                     <CardHeader className="border-b border-border/60 pb-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -530,7 +538,7 @@ export default function AdminEvalsPage() {
                         ) : null}
                       </div>
                     </CardHeader>
-                    <CardContent className="grid gap-3 p-4 sm:grid-cols-2 sm:p-6 xl:grid-cols-4">
+                    <CardContent className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 sm:p-6 xl:grid-cols-4">
                       <div className="rounded-[1.2rem] border border-border/60 bg-muted/20 p-4">
                         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">User</p>
                         <p className="mt-2 text-sm font-medium">{selectedTrace?.clerk_email ?? "No trace selected"}</p>
@@ -545,7 +553,12 @@ export default function AdminEvalsPage() {
                         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Status</p>
                         <div className="mt-2 flex items-center gap-2">
                           {selectedTrace ? (
-                            <Badge variant={statusTone(selectedTrace.status)}>{statusLabel(selectedTrace.status)}</Badge>
+                            <Badge
+                              variant="outline"
+                              className={cn("rounded-full", statusBadgeClass(selectedTrace.status))}
+                            >
+                              {statusLabel(selectedTrace.status)}
+                            </Badge>
                           ) : (
                             <p className="text-sm">Unavailable</p>
                           )}
@@ -578,7 +591,7 @@ export default function AdminEvalsPage() {
                     </Card>
                   ) : null}
 
-                  <div className="grid gap-4 2xl:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
                     <SnippetPanel label="Input Body" value={selectedTrace?.input_body ?? "Select a trace to inspect the source message body."} />
                     <SnippetPanel label="Full Prompt" value={selectedTrace?.prompt ?? "Prompt unavailable for this trace."} />
                     <SnippetPanel label="Raw Model Output" value={selectedTrace?.ai_output ?? "Model output unavailable for this trace."} />
@@ -600,7 +613,7 @@ export default function AdminEvalsPage() {
                         Extra transport data captured with the model run.
                       </CardDescription>
                     </CardHeader>
-                    <CardContent className="grid gap-3 sm:grid-cols-2">
+                    <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div className="rounded-[1.2rem] border border-border/60 bg-muted/20 p-4">
                         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Email timestamp</p>
                         <p className="mt-2 text-sm font-medium">{formatTimestamp(selectedTrace?.email_timestamp ?? null)}</p>
