@@ -18,6 +18,7 @@ import { ReauthWarning } from "@/components/ui/ReauthWarning"
 import { TopReceivers } from "@/components/ui/TopReceivers"
 import { Button } from "@/components/ui/button"
 import { GoogleSignInButton } from "@/components/ui/GoogleSignInButton"
+import { useTokenStatus } from "@/hooks/useTokenStatus"
 import {
   getDefaultClassificationSettings,
   normalizeClassificationSettings,
@@ -43,6 +44,7 @@ import {
   Plus,
   Receipt,
   SearchX,
+  ShieldAlert,
   SlidersHorizontal,
   Wallet,
   X,
@@ -88,6 +90,7 @@ export default function DashboardPage() {
   const website_url = process.env.NEXT_PUBLIC_API_URL
   const authedFetch = useAuthedFetch()
   const { user, isLoaded } = useAppUser()
+  const { tokenStatus } = useTokenStatus({ pollInterval: 300000 })
 
   const fetchData = React.useCallback(async (range: { from: Date; to: Date }) => {
     if (!website_url) {
@@ -400,6 +403,7 @@ export default function DashboardPage() {
   }, [authedFetch, website_url])
 
   const userEmail = user?.primaryEmailAddress?.emailAddress
+  const isAdmin = tokenStatus?.role === "admin"
 
   return (
     <>
@@ -459,6 +463,14 @@ export default function DashboardPage() {
               </span>
             </Link>
             <div className="flex items-center gap-2">
+              {isAdmin ? (
+                <Button asChild type="button" variant="outline" className="h-10 rounded-full px-3 sm:px-4">
+                  <Link href="/admin/evals">
+                    <ShieldAlert className="size-4" />
+                    <span className="hidden sm:inline">AI evals</span>
+                  </Link>
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="outline"
