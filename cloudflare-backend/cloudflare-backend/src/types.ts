@@ -46,6 +46,15 @@ export interface ClassificationSettingsRecord {
   updated_at: string
 }
 
+export interface ReceiverClassificationRecord {
+  clerk_user_id: string
+  receiver_key: string
+  receiver_label: string
+  classification: string
+  created_at: string
+  updated_at: string
+}
+
 export interface GoogleTokenRecord {
   clerk_user_id: string
   access_token: string

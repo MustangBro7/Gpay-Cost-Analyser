@@ -2,6 +2,8 @@ import { DEFAULT_CLASSIFICATION_RULES_TEXT } from './classification-settings'
 import { AiAgentEvalSource, ClassificationSettings, Env, Transaction } from '../types'
 import { HttpError } from '../utils/http'
 import { AiAgentEvalRepository } from '../repositories/ai-agent-eval-repository'
+import { ReceiverClassificationStore } from '../repositories/receiver-classification-repository'
+import { normalizeReceiverLabel } from '../utils/receiver'
 
 interface PartialTransaction {
   Amount?: string
@@ -43,6 +45,44 @@ function sanitizeBody(body: string): string {
   return body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
+function cleanReceiverCandidate(candidate: string | undefined): string | null {
+  if (!candidate) {
+    return null
+  }
+
+  const cleaned = candidate
+    .replace(/^[\s:;,\-.()[\]{}]+/, '')
+    .replace(/[\s:;,\-.()[\]{}]+$/, '')
+    .replace(/\b(on|using|via)\b\s*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  return cleaned || null
+}
+
+function parseReceiver(cleanBody: string): string | undefined {
+  const receiverPatterns = [
+    /(?:to|towards)\s+VPA\s+[\w.-]+@[\w.-]+\s*\(([^)]+)\)/i,
+    /(?:to|towards)\s+VPA\s+[\w.-]+@[\w.-]+\s+([A-Za-z][A-Za-z0-9\s&\-.]+?)\s+on\b/i,
+    /\bto\s+(.+?)\s+using\b/i,
+    /\bto\s+(.+?)\s+via\b/i,
+    /\bpayment to\s+(.+?)(?:\s+on\b|\s+via\b|\s+using\b|[,.]|$)/i,
+    /\btransferred to\s+(.+?)(?:\s+on\b|\s+via\b|\s+using\b|[,.]|$)/i,
+    /\btowards\s+(.+?)\s+on\b/i,
+    /(?:to|towards)\s+VPA\s+([\w.-]+@[\w.-]+)/i,
+  ]
+
+  for (const pattern of receiverPatterns) {
+    const match = cleanBody.match(pattern)
+    const cleaned = cleanReceiverCandidate(match?.[1])
+    if (cleaned) {
+      return cleaned
+    }
+  }
+
+  return undefined
+}
+
 function parseHdfcDebitEmail(body: string, emailTimestamp?: string | null): PartialTransaction | null {
   const cleanBody = sanitizeBody(body)
   const result: PartialTransaction = {}
@@ -62,19 +102,9 @@ function parseHdfcDebitEmail(body: string, emailTimestamp?: string | null): Part
     }
   }
 
-  const receiverPatterns = [
-    /to VPA\s+[\w\-\.@]+\s+([A-Za-z][A-Za-z0-9\s&\-.]+?)\s+on\s+\d/i,
-    /to VPA\s+([\w\-\.@]+)/i,
-    /(?:to|at)\s+([A-Za-z][A-Za-z0-9\s&\-.]{2,}?)\s+(?:on|via|using)\s+\d/i,
-    /(?:transferred to|paid to|payment to)\s+([A-Za-z0-9\s&\-.]+)/i,
-  ]
-
-  for (const pattern of receiverPatterns) {
-    const match = cleanBody.match(pattern)
-    if (match?.[1]) {
-      result.Receiver = match[1].replace(/\s+/g, ' ').trim()
-      break
-    }
+  const receiver = parseReceiver(cleanBody)
+  if (receiver) {
+    result.Receiver = receiver
   }
 
   const datePatterns = [
@@ -203,8 +233,8 @@ function formatDateTime(value: Date): string {
 }
 
 function classifyHeuristically(receiver: string | undefined): string {
-  if (!receiver) {
-    return 'Personal Contact'
+  if (!receiver || receiver.trim().toLowerCase() === 'personal contact') {
+    return 'Personal Transfer'
   }
 
   for (const rule of CLASSIFICATION_RULES) {
@@ -392,14 +422,60 @@ async function logClassificationAttempt(
   }
 }
 
+function buildReceiverMemorySkipAttempt(): ClassificationAttemptResult {
+  return {
+    prompt: null,
+    model: null,
+    aiOutput: null,
+    parsedOutput: null,
+    errorMessage: 'Classification reused from receiver memory.',
+    latencyMs: null,
+    status: 'skipped',
+  }
+}
+
+function shouldPersistReceiverClassification(
+  attempt: ClassificationAttemptResult,
+  transaction: Transaction
+): boolean {
+  return Boolean(
+    attempt.status === 'success' &&
+      attempt.parsedOutput?.Classification?.trim() &&
+      transaction.Receiver.trim().toLowerCase() !== 'personal contact'
+  )
+}
+
 export async function extractAndClassifyTransaction(
   env: Env,
   body: string,
   emailTimestamp: string | null,
   settings: ClassificationSettings,
-  context: ClassificationRunContext
+  context: ClassificationRunContext,
+  receiverClassifications: ReceiverClassificationStore
 ): Promise<Transaction | null> {
   const parsed = parseHdfcDebitEmail(body, emailTimestamp)
+  const parsedReceiver = normalizeReceiverLabel(parsed?.Receiver ?? '')
+
+  if (parsedReceiver) {
+    const savedClassification = await receiverClassifications.findByReceiver(context.clerkUserId, parsedReceiver)
+    if (savedClassification) {
+      const attempt = buildReceiverMemorySkipAttempt()
+      if (!parsed?.Amount) {
+        await logClassificationAttempt(env, context, settings, body, emailTimestamp, attempt, null)
+        return null
+      }
+
+      const transaction = {
+        Amount: parsed.Amount.replace(/,/g, ''),
+        Receiver: parsedReceiver,
+        Date: parsed.Date ?? emailTimestamp ?? formatDateTime(new Date()),
+        Classification: savedClassification.classification,
+      }
+      await logClassificationAttempt(env, context, settings, body, emailTimestamp, attempt, transaction)
+      return transaction
+    }
+  }
+
   const attempt = await classifyWithGemini(env, body, emailTimestamp, settings)
   const merged = { ...parsed, ...attempt.parsedOutput }
 
@@ -408,13 +484,18 @@ export async function extractAndClassifyTransaction(
     return null
   }
 
-  const receiver = merged.Receiver?.trim() || 'Personal Contact'
+  const receiver = normalizeReceiverLabel(merged.Receiver?.trim() || parsedReceiver || 'Personal Contact')
   const transaction = {
     Amount: merged.Amount.replace(/,/g, ''),
     Receiver: receiver,
     Date: merged.Date ?? emailTimestamp ?? formatDateTime(new Date()),
     Classification: merged.Classification?.trim() || classifyHeuristically(receiver),
   }
+
+  if (shouldPersistReceiverClassification(attempt, transaction)) {
+    await receiverClassifications.upsert(context.clerkUserId, transaction.Receiver, transaction.Classification)
+  }
+
   await logClassificationAttempt(env, context, settings, body, emailTimestamp, attempt, transaction)
   return transaction
 }

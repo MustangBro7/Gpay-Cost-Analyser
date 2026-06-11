@@ -1,5 +1,6 @@
 import { GMAIL_READONLY_SCOPE, getGoogleAccountStatus, getGoogleOauthAccessToken } from '../auth/clerk'
 import { Env, GmailPushPayload, ParsedEmailMessage, Transaction } from '../types'
+import { ReceiverClassificationStore } from '../repositories/receiver-classification-repository'
 import { UserRepository } from '../repositories/user-repository'
 import { TransactionRepository } from '../repositories/transaction-repository'
 import { extractAndClassifyTransaction } from './classifier'
@@ -43,7 +44,8 @@ export class GmailService {
   constructor(
     private readonly env: Env,
     private readonly users: UserRepository,
-    private readonly transactions: TransactionRepository
+    private readonly transactions: TransactionRepository,
+    private readonly receiverClassifications: ReceiverClassificationStore
   ) {
     this.senders = (env.HDFC_SENDERS || 'alerts@hdfcbank.net,alerts@hdfcbank.bank.in')
       .split(',')
@@ -380,7 +382,7 @@ export class GmailService {
       source: 'gmail',
       gmailMessageId: message.id,
       gmailThreadId: message.threadId,
-    })
+    }, this.receiverClassifications)
     if (!transaction) {
       return false
     }
