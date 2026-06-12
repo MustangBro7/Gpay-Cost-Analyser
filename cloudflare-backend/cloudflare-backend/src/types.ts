@@ -169,6 +169,10 @@ export interface ReclassifyRequest {
   newClassification: string
 }
 
+export interface DeleteTransactionRequest {
+  original: Transaction
+}
+
 export interface NormalizeRequest {
   original: Transaction
   paidToMe?: string | null

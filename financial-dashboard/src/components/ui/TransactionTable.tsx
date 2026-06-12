@@ -11,6 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { DeleteTransactionDialog } from "@/components/ui/DeleteTransactionDialog"
 import { NormalizeTransactionDialog } from "@/components/ui/NormalizeTransactionDialog"
 import { ReclassifyTransactionDialog } from "@/components/ui/ReclassifyTransactionDialog"
 import { formatTransactionDate, getTransactionDateSortValue } from "@/lib/transactionDate"
@@ -26,6 +27,7 @@ import {
   Search,
   SlidersHorizontal,
   Split,
+  Trash2,
   X,
 } from "lucide-react"
 
@@ -168,6 +170,7 @@ export function TransactionTable({
   const [receiverQuery, setReceiverQuery] = React.useState("")
   const [reclassifyTarget, setReclassifyTarget] = React.useState<Transaction | null>(null)
   const [normalizeTarget, setNormalizeTarget] = React.useState<Transaction | null>(null)
+  const [deleteTarget, setDeleteTarget] = React.useState<Transaction | null>(null)
   const deferredReceiverQuery = React.useDeferredValue(receiverQuery)
   const normalizedReceiverQuery = deferredReceiverQuery.trim().toLowerCase()
 
@@ -461,6 +464,16 @@ export function TransactionTable({
                                   <Split className="size-3.5" />
                                   Normalize
                                 </Button>
+                                <Button
+                                  type="button"
+                                  size="icon-sm"
+                                  variant="outline"
+                                  aria-label={`Delete transaction to ${tx.Receiver}`}
+                                  className="rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                  onClick={() => setDeleteTarget(tx)}
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </Button>
                               </div>
                             </div>
                           </div>
@@ -504,6 +517,16 @@ export function TransactionTable({
                             >
                               <Split className="size-3.5" />
                               Normalize
+                            </Button>
+                            <Button
+                              type="button"
+                              size="icon-sm"
+                              variant="outline"
+                              aria-label={`Delete transaction to ${tx.Receiver}`}
+                              className="rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+                              onClick={() => setDeleteTarget(tx)}
+                            >
+                              <Trash2 className="size-3.5" />
                             </Button>
                           </div>
                         </td>
@@ -566,6 +589,19 @@ export function TransactionTable({
             }
           }}
           transaction={normalizeTarget}
+          onSuccess={refetch}
+        />
+      ) : null}
+
+      {deleteTarget ? (
+        <DeleteTransactionDialog
+          open={Boolean(deleteTarget)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setDeleteTarget(null)
+            }
+          }}
+          transaction={deleteTarget}
           onSuccess={refetch}
         />
       ) : null}

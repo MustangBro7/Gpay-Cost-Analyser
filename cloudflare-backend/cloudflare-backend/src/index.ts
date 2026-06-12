@@ -4,6 +4,7 @@ import { HTTPException } from 'hono/http-exception'
 import { isLocalDevMode, requireAuthenticatedUser } from './auth/clerk'
 import {
   addDevTransaction,
+  deleteDevTransaction,
   devReceiverClassificationStore,
   getDevClassificationSettings,
   getDevTokenStatus,
@@ -24,6 +25,7 @@ import {
   AddTransactionRequest,
   ClassificationPreviewRequest,
   DateRangeRequest,
+  DeleteTransactionRequest,
   Env,
   GmailPushEnvelope,
   GmailPushPayload,
@@ -145,6 +147,15 @@ function ensureDateTime(value: string, field: string): string {
     throw new HttpError(400, `${field} must be in YYYY-MM-DD HH:MM:SS format.`)
   }
   return value
+}
+
+function ensureOriginalTransaction(payload: { original?: Transaction }): Transaction {
+  const original = payload?.original
+  if (!original || typeof original !== 'object') {
+    throw new HttpError(400, 'original transaction is required.')
+  }
+  ensureDateTime(typeof original.Date === 'string' ? original.Date : '', 'original.Date')
+  return original
 }
 
 function parseDateRange(value: string): Date {
@@ -611,6 +622,10 @@ app.post('/add-transaction', async (c) => {
 app.post('/reclassify', async (c) => {
   const authUser = await requireAuthenticatedUser(c)
   const payload = await parseJsonBody<ReclassifyRequest>(c.req.raw)
+  ensureOriginalTransaction(payload)
+  if (typeof payload.newClassification !== 'string' || !payload.newClassification.trim()) {
+    throw new HttpError(400, 'newClassification is required.')
+  }
 
   if (isLocalDevMode(c.env)) {
     const result = reclassifyDevTransaction(authUser, payload)
@@ -634,9 +649,37 @@ app.post('/reclassify', async (c) => {
   return c.json({ status: 'updated', data: result.transactions, updated_transaction: result.result })
 })
 
+app.post('/delete-transaction', async (c) => {
+  const authUser = await requireAuthenticatedUser(c)
+  const payload = await parseJsonBody<DeleteTransactionRequest>(c.req.raw)
+  ensureOriginalTransaction(payload)
+
+  if (isLocalDevMode(c.env)) {
+    const result = deleteDevTransaction(payload)
+    return c.json({ status: 'deleted', data: result.transactions, deleted_transaction: result.deletedTransaction })
+  }
+
+  const { users, transactions } = getRepositories(c.env)
+  await upsertAuthenticatedUser(c.env, users, authUser)
+
+  const result = await transactions.mutateTransactions(authUser.clerkUserId, (items) => {
+    const index = items.findIndex(
+      (entry) => entry.Date === payload.original.Date && entry.Amount === payload.original.Amount
+    )
+    if (index === -1) {
+      throw new HttpError(404, 'Transaction not found.')
+    }
+    const [deleted] = items.splice(index, 1)
+    return deleted
+  })
+
+  return c.json({ status: 'deleted', data: result.transactions, deleted_transaction: result.result })
+})
+
 app.post('/normalize', async (c) => {
   const authUser = await requireAuthenticatedUser(c)
   const payload = await parseJsonBody<NormalizeRequest>(c.req.raw)
+  ensureOriginalTransaction(payload)
 
   if (isLocalDevMode(c.env)) {
     const result = normalizeDevTransaction(payload)

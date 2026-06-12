@@ -2,6 +2,7 @@ import {
   AddTransactionRequest,
   AuthenticatedUser,
   ClassificationSettings,
+  DeleteTransactionRequest,
   NormalizeRequest,
   ReclassifyRequest,
   Transaction,
@@ -168,6 +169,25 @@ export function reclassifyDevTransaction(user: AuthenticatedUser, payload: Recla
   return {
     transactions: cloneTransactions(devTransactions),
     updatedTransaction: cloneTransaction(match),
+  }
+}
+
+export function deleteDevTransaction(payload: DeleteTransactionRequest): {
+  transactions: Transaction[]
+  deletedTransaction: Transaction
+} {
+  const index = devTransactions.findIndex(
+    (entry) => entry.Date === payload.original.Date && entry.Amount === payload.original.Amount
+  )
+  if (index === -1) {
+    throw new HttpError(404, 'Transaction not found.')
+  }
+
+  const [deleted] = devTransactions.splice(index, 1)
+
+  return {
+    transactions: cloneTransactions(devTransactions),
+    deletedTransaction: cloneTransaction(deleted),
   }
 }
 

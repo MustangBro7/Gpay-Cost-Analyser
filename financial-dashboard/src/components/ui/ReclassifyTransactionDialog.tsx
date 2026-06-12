@@ -56,7 +56,7 @@ export function ReclassifyTransactionDialog({
 
     setIsSubmitting(true)
     try {
-      await authedFetch(`${websiteUrl}/reclassify`, {
+      const response = await authedFetch(`${websiteUrl}/reclassify`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -64,6 +64,10 @@ export function ReclassifyTransactionDialog({
           newClassification: trimmed,
         }),
       })
+
+      if (!response.ok) {
+        throw new Error(`Reclassify failed with status ${response.status}`)
+      }
 
       toast.success("Reclassification submitted", {
         description: `Updated "${transaction.Classification}" to "${trimmed}"`,
