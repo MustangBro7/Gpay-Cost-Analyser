@@ -1,0 +1,26 @@
+name: rulekeeper
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check instruction files against the code
+        uses: MustangBro7/rulekeeper@v2
+        with:
+          token: ${{ secrets.RULEKEEPER_TOKEN }}
+          strict: "false"
