@@ -103,6 +103,7 @@ export async function getGoogleAccountStatus(env: Env, clerkUserId: string): Pro
   tokenScopes: string[]
   hasGoogleAccount: boolean
   hasGmailScope: boolean
+  userCreatedAt: number
 }> {
   const clerkClient = getClerkClient(env)
   const user = await clerkClient.users.getUser(clerkUserId)
@@ -121,6 +122,7 @@ export async function getGoogleAccountStatus(env: Env, clerkUserId: string): Pro
     tokenScopes,
     hasGoogleAccount: Boolean(googleAccount),
     hasGmailScope: combinedScopes.has(GMAIL_READONLY_SCOPE),
+    userCreatedAt: user.createdAt,
   }
 }
 

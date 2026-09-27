@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
-import { isLocalDevMode, requireAuthenticatedUser } from './auth/clerk'
+import { getClerkClient, getGoogleAccountStatus, isLocalDevMode, requireAuthenticatedUser } from './auth/clerk'
 import {
   addDevTransaction,
   deleteDevTransaction,
@@ -351,6 +351,36 @@ app.post('/google/connect-url', async (c) => {
         ? 'Sign in with Google through Clerk to enable Gmail access.'
         : 'Reconnect your Google account through Clerk to grant Gmail read access.',
   })
+})
+
+// A sign-up younger than this that lands without Gmail consent is treated as abandoned and removed.
+const NEW_SIGN_UP_WINDOW_MS = 30 * 60 * 1000
+
+// Called right after the Google OAuth redirect. Gmail read access is mandatory, so a first-time
+// sign-up that unticked the Gmail checkbox on Google's consent screen is deleted instead of kept.
+app.post('/auth/verify-gmail-access', async (c) => {
+  if (isLocalDevMode(c.env)) {
+    return c.json({ status: 'ok' })
+  }
+
+  const authUser = await requireAuthenticatedUser(c)
+  const googleAccount = await getGoogleAccountStatus(c.env, authUser.clerkUserId)
+  if (googleAccount.hasGmailScope) {
+    return c.json({ status: 'ok' })
+  }
+
+  const { users } = getRepositories(c.env)
+  const isAdmin = resolveRequestedUserRole(c.env, authUser.clerkUserId, authUser.email) === 'admin'
+  const isNewSignUp = Date.now() - googleAccount.userCreatedAt < NEW_SIGN_UP_WINDOW_MS
+  const hasFootprint = await users.hasExistingFootprint(authUser.clerkUserId, googleAccount.googleEmail ?? authUser.email)
+
+  if (isAdmin || !isNewSignUp || hasFootprint) {
+    return c.json({ status: 'gmail_scope_missing', deleted: false })
+  }
+
+  await getClerkClient(c.env).users.deleteUser(authUser.clerkUserId)
+  await users.deleteUser(authUser.clerkUserId)
+  return c.json({ status: 'gmail_scope_missing', deleted: true })
 })
 
 app.get('/token-status', async (c) => {

@@ -11,6 +11,11 @@ or dialog must follow these rules. Do not introduce new visual styles.
   signed-out → Google flow landing on `/dashboard`, signed-in → link to `/dashboard`.
 - `GoogleSignInButton` takes `redirectUrlComplete` (default `/dashboard`); pass the current page
   for non-dashboard sign-ins (e.g. `/admin/evals`).
+- `GoogleSignInButton` opens a consent dialog (user must tick an acknowledgement) before redirecting
+  to Google, and always completes via `/verify-access?next=...`, which calls the backend's
+  `POST /auth/verify-gmail-access`. First-time sign-ups missing the Gmail scope are deleted there.
+- `/privacy` and `/terms` are public legal pages (built on `LegalPage`) linked from the Google
+  OAuth consent screen — keep them accurate when data handling changes.
 - New app pages go under `/dashboard/...` or `/admin/...` and get disallowed in `robots.ts`.
 
 ## Stack

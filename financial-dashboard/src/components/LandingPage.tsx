@@ -1,5 +1,6 @@
 import * as React from "react"
 import Image from "next/image"
+import Link from "next/link"
 import {
   CalendarRange,
   ChartPie,
@@ -275,7 +276,11 @@ export function LandingPage() {
 
         <footer className="mt-auto flex flex-col items-start justify-between gap-2 border-t border-border/60 py-6 text-sm text-muted-foreground sm:flex-row sm:items-center">
           <span>GPay Cost Analyzer</span>
-          <span>Track, classify, and analyze Google Pay spending.</span>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <Link href="/privacy" className="hover:text-foreground">Privacy</Link>
+            <Link href="/terms" className="hover:text-foreground">Terms</Link>
+            <span>Track, classify, and analyze Google Pay spending.</span>
+          </div>
         </footer>
       </div>
     </div>

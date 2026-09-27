@@ -406,4 +406,50 @@ export class UserRepository {
       .bind(pubsubMessageId, googleEmail, historyId, nowIso())
       .run()
   }
+
+  /**
+   * True when this Clerk user (or an earlier Clerk user with the same email) has
+   * ever held a Gmail watch or stored transactions — i.e. they are not a first-time sign-up.
+   */
+  async hasExistingFootprint(clerkUserId: string, email: string): Promise<boolean> {
+    const normalizedEmail = email.trim().toLowerCase()
+    const row = await this.db
+      .prepare(
+        `SELECT 1 AS found
+         WHERE EXISTS (SELECT 1 FROM gmail_watch_state WHERE clerk_user_id = ?)
+            OR EXISTS (SELECT 1 FROM transaction_heads WHERE clerk_user_id = ?)
+            OR EXISTS (
+              SELECT 1
+              FROM transaction_heads th
+              LEFT JOIN users u ON u.clerk_user_id = th.clerk_user_id
+              LEFT JOIN gmail_watch_state g ON g.clerk_user_id = th.clerk_user_id
+              WHERE th.clerk_user_id != ?
+                AND (
+                  lower(COALESCE(u.google_email, '')) = ?
+                  OR lower(COALESCE(g.google_email, '')) = ?
+                  OR lower(COALESCE(u.clerk_email, '')) = ?
+                )
+            )`
+      )
+      .bind(clerkUserId, clerkUserId, clerkUserId, normalizedEmail, normalizedEmail, normalizedEmail)
+      .first<{ found: number }>()
+    return Boolean(row?.found)
+  }
+
+  async deleteUser(clerkUserId: string): Promise<void> {
+    const tables = [
+      'ai_agent_evals',
+      'receiver_classification_memory',
+      'user_classification_settings',
+      'gmail_processed_messages',
+      'gmail_watch_state',
+      'oauth_states',
+      'google_oauth_tokens',
+      'transaction_heads',
+      'users',
+    ]
+    await this.db.batch(
+      tables.map((table) => this.db.prepare(`DELETE FROM ${table} WHERE clerk_user_id = ?`).bind(clerkUserId))
+    )
+  }
 }
