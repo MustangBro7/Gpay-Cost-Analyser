@@ -4,6 +4,9 @@ import * as React from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { ClassificationInput } from "@/components/ui/ClassificationInput"
+import { TagChip } from "@/components/ui/TagChip"
+import { TagInput } from "@/components/ui/TagInput"
+import { MAX_TAGS_PER_TRANSACTION, sameTag } from "@/lib/tags"
 import { Input } from "@/components/ui/input"
 import {
   Dialog,
@@ -29,6 +32,8 @@ interface AddTransactionDialogProps {
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
   classificationCategories: string[]
+  /** Existing tag names offered as suggestions. */
+  knownTags?: string[]
 }
 
 export function AddTransactionDialog({
@@ -36,10 +41,12 @@ export function AddTransactionDialog({
   onOpenChange,
   onSuccess,
   classificationCategories,
+  knownTags = [],
 }: AddTransactionDialogProps) {
   const [amount, setAmount] = React.useState("")
   const [receiver, setReceiver] = React.useState("")
   const [classificationInput, setClassificationInput] = React.useState("")
+  const [tags, setTags] = React.useState<string[]>([])
   const [date, setDate] = React.useState<Date | undefined>(new Date())
   const [isDatePickerOpen, setIsDatePickerOpen] = React.useState(false)
   const [time, setTime] = React.useState(
@@ -55,6 +62,7 @@ export function AddTransactionDialog({
       setAmount("")
       setReceiver("")
       setClassificationInput("")
+      setTags([])
       setDate(new Date())
       setTime(format(new Date(), "HH:mm"))
     }
@@ -97,6 +105,7 @@ export function AddTransactionDialog({
           Classification: finalClassification,
           Receiver: receiver.trim(),
           Date: formattedDate,
+          ...(tags.length > 0 ? { Tags: tags } : {}),
         }),
       })
 
@@ -163,6 +172,36 @@ export function AddTransactionDialog({
                 onChange={setClassificationInput}
               />
             </div>
+          </div>
+
+          {/* Tags - optional */}
+          <div className="space-y-2.5">
+            <label className="text-sm font-medium block">
+              Tags <span className="font-normal text-muted-foreground">(optional)</span>
+            </label>
+            {tags.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {tags.map((tag) => (
+                  <TagChip
+                    key={tag}
+                    tag={tag}
+                    onRemove={() => setTags((current) => current.filter((entry) => entry !== tag))}
+                  />
+                ))}
+              </div>
+            ) : null}
+            <TagInput
+              suggestions={knownTags}
+              exclude={tags}
+              quickPickCount={4}
+              disabled={tags.length >= MAX_TAGS_PER_TRANSACTION}
+              placeholder="e.g. Goa trip"
+              onAdd={(tag) =>
+                setTags((current) =>
+                  current.some((entry) => sameTag(entry, tag)) ? current : [...current, tag]
+                )
+              }
+            />
           </div>
 
           {/* Date & Time - Visual separator */}

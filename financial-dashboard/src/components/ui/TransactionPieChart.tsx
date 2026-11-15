@@ -16,15 +16,21 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart"
+import { formatGroupLabel, getGroupKeys, hasOverlappingTags, parseAmount } from "@/lib/tags"
+import { GroupBy } from "@/types/Tag"
+import { Transaction } from "@/types/Transaction"
 
 export function PieChartComponent({
   data,
   activeClassification,
   onClassificationSelect,
+  groupBy = "classification",
 }: {
-  data: { Classification: string; Amount: string; Receiver: string; Date: string }[]
+  data: Transaction[]
   activeClassification?: string | null
   onClassificationSelect: (classification: string) => void
+  /** Bucket slices by classification (default) or by tag. */
+  groupBy?: GroupBy
 }) {
   const safeData = React.useMemo(
     () => (Array.isArray(data) ? data : []),
@@ -33,9 +39,10 @@ export function PieChartComponent({
 
   const parsedData = React.useMemo(() => {
     const grouped = safeData.reduce((acc, curr) => {
-      const key = curr.Classification
       const amt = parseFloat(curr.Amount.replace(/,/g, ""))
-      acc[key] = (acc[key] || 0) + amt
+      getGroupKeys(curr, groupBy).forEach((key) => {
+        acc[key] = (acc[key] || 0) + amt
+      })
       return acc
     }, {} as Record<string, number>)
 
@@ -43,9 +50,15 @@ export function PieChartComponent({
       classification,
       amount,
     }))
-  }, [safeData])
+  }, [groupBy, safeData])
 
-  const total = parsedData.reduce((acc, curr) => acc + curr.amount, 0)
+  // A transaction with several tags counts toward each of them, so the centre total and the
+  // percentages use the real (de-duplicated) spend rather than the sum of slices.
+  const isTagView = groupBy === "tag"
+  const total = isTagView
+    ? safeData.reduce((acc, curr) => acc + parseAmount(curr.Amount), 0)
+    : parsedData.reduce((acc, curr) => acc + curr.amount, 0)
+  const showsOverlap = isTagView && hasOverlappingTags(safeData)
 
   const colors = [
     "var(--chart-1)",
@@ -63,7 +76,7 @@ export function PieChartComponent({
   const chartConfig = Object.fromEntries(
     coloredData.map((entry, index) => [
       entry.classification,
-      { label: entry.classification, color: colors[index % colors.length] },
+      { label: formatGroupLabel(entry.classification), color: colors[index % colors.length] },
     ])
   )
 
@@ -74,9 +87,11 @@ export function PieChartComponent({
   return (
     <Card className="flex h-full flex-col rounded-[1.75rem] border-border/70 bg-card/90 shadow-sm">
       <CardHeader className="pb-2">
-        <CardTitle>Spending by Classification</CardTitle>
+        <CardTitle>{isTagView ? "Spending by Tag" : "Spending by Classification"}</CardTitle>
         <CardDescription>
-          Click a slice or category to focus the dashboard.
+          {isTagView
+            ? "Click a slice or tag to focus the dashboard."
+            : "Click a slice or category to focus the dashboard."}
         </CardDescription>
       </CardHeader>
 
@@ -149,7 +164,7 @@ export function PieChartComponent({
         </ChartContainer>
       </CardContent>
 
-      <CardFooter className="mt-auto border-t border-border/70 pt-4">
+      <CardFooter className="mt-auto flex-col items-stretch gap-3 border-t border-border/70 pt-4">
         <ul className="grid w-full grid-cols-1 gap-x-4 gap-y-1.5 sm:grid-cols-2">
           {legendData.map((entry) => {
             const isActive = activeClassification === entry.classification
@@ -169,7 +184,7 @@ export function PieChartComponent({
                     className="size-2.5 shrink-0 rounded-full"
                     style={{ backgroundColor: entry.fill }}
                   />
-                  <span className="min-w-0 truncate">{entry.classification}</span>
+                  <span className="min-w-0 truncate">{formatGroupLabel(entry.classification)}</span>
                   <span className="ml-auto shrink-0 text-xs text-muted-foreground">
                     {total > 0 ? Math.round((entry.amount / total) * 100) : 0}%
                   </span>
@@ -178,6 +193,12 @@ export function PieChartComponent({
             )
           })}
         </ul>
+        {showsOverlap ? (
+          <p className="text-xs leading-5 text-muted-foreground">
+            Some transactions have more than one tag, so they count toward each tag and shares
+            can add up to more than 100%.
+          </p>
+        ) : null}
       </CardFooter>
     </Card>
   )

@@ -64,7 +64,10 @@ export default function PrivacyPage() {
             <>
               <ul>
                 <li>Your account details (name, email) and your Google connection status.</li>
-                <li>Extracted transactions and your category settings.</li>
+                <li>
+                  Extracted transactions, your category settings, and any tags you add to
+                  transactions.
+                </li>
                 <li>
                   A processing log of recent alert emails and the extraction result, kept so the
                   developer can diagnose and fix misclassified transactions.

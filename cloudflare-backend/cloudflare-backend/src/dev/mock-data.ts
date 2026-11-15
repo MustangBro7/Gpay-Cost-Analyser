@@ -9,6 +9,7 @@ import {
 } from '../types'
 import { ReceiverClassificationStore } from '../repositories/receiver-classification-repository'
 import { getDefaultClassificationSettings } from '../services/classification-settings'
+import { canonicalizeTags, setTransactionTags } from '../services/tags'
 import { HttpError } from '../utils/http'
 import { normalizeReceiverKey, normalizeReceiverLabel } from '../utils/receiver'
 
@@ -52,6 +53,7 @@ function cloneTransaction(transaction: Transaction): Transaction {
   return {
     ...transaction,
     Payers: transaction.Payers?.map((payer) => ({ ...payer })),
+    ...(transaction.Tags ? { Tags: [...transaction.Tags] } : {}),
   }
 }
 
@@ -100,6 +102,11 @@ export function getDevTransactions(): Transaction[] {
   return cloneTransactions(devTransactions)
 }
 
+/** Runs a mutation against the in-memory dataset, mirroring TransactionRepository.mutateTransactions. */
+export function mutateDevTransactions<T>(mutate: (transactions: Transaction[]) => T): T {
+  return mutate(devTransactions)
+}
+
 export function getDevClassificationSettings(user: AuthenticatedUser): ClassificationSettings {
   const settings = devClassificationSettings.get(user.clerkUserId)
   if (!settings) {
@@ -136,7 +143,11 @@ export function upsertDevClassificationSettings(
   }
 }
 
-export function addDevTransaction(user: AuthenticatedUser, payload: AddTransactionRequest): Transaction {
+export function addDevTransaction(
+  user: AuthenticatedUser,
+  payload: AddTransactionRequest,
+  tags: string[] = []
+): Transaction {
   const exists = devTransactions.some((entry) => entry.Date === payload.Date && entry.Amount === payload.Amount)
   if (exists) {
     throw new HttpError(400, 'A transaction with this date and amount already exists.')
@@ -148,6 +159,7 @@ export function addDevTransaction(user: AuthenticatedUser, payload: AddTransacti
     Receiver: normalizeReceiverLabel(payload.Receiver),
     Date: payload.Date,
   }
+  setTransactionTags(transaction, canonicalizeTags(devTransactions, tags))
 
   devTransactions.push(transaction)
   upsertDevReceiverClassification(user.clerkUserId, transaction.Receiver, transaction.Classification)

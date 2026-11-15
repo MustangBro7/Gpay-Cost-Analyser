@@ -17,6 +17,8 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart"
 import { formatTransactionDateKey, getTransactionDateKey } from "@/lib/transactionDate"
+import { formatGroupLabel, getGroupKeys } from "@/lib/tags"
+import { GroupBy } from "@/types/Tag"
 import { Transaction } from "@/types/Transaction"
 
 export const description = "A bar chart with a custom label"
@@ -35,24 +37,30 @@ export function VerticalBarChart({
   data = [],
   activeClassification,
   onClassificationSelect,
+  groupBy = "classification",
 }: {
   data: Transaction[]
   activeClassification?: string | null
   onClassificationSelect: (classification: string) => void
+  /** Rank by classification (default) or by tag. */
+  groupBy?: GroupBy
 }) {
   const grouped = React.useMemo(() => {
     const map: Record<string, number> = {}
     data.forEach((tx) => {
       const amt = parseFloat(tx.Amount.replace(/,/g, "")) || 0
-      map[tx.Classification] = (map[tx.Classification] || 0) + amt
+      getGroupKeys(tx, groupBy).forEach((key) => {
+        map[key] = (map[key] || 0) + amt
+      })
     })
     return Object.entries(map)
-      .map(([Classification, total]) => ({
-        Classification,
+      .map(([key, total]) => ({
+        key,
+        Classification: formatGroupLabel(key),
         total,
       }))
       .sort((a, b) => b.total - a.total)
-  }, [data])
+  }, [data, groupBy])
 
   const pageSize = 5
   const [currentPage, setCurrentPage] = React.useState(0)
@@ -88,7 +96,7 @@ export function VerticalBarChart({
   return (
     <Card className="flex h-full flex-col rounded-[1.75rem] border-border/70 bg-card/90 shadow-sm">
       <CardHeader>
-        <CardTitle>Category Ranking</CardTitle>
+        <CardTitle>{groupBy === "tag" ? "Tag Ranking" : "Category Ranking"}</CardTitle>
         <CardDescription>
           {dateRange
             ? `${dateRange.from} to ${dateRange.to}`
@@ -133,14 +141,14 @@ export function VerticalBarChart({
               onClick={(_, index) => {
                 const item = paginated[index]
                 if (!item) return
-                onClassificationSelect(item.Classification)
+                onClassificationSelect(item.key)
               }}
             >
               {paginated.map((item) => {
-                const isActive = activeClassification === item.Classification
+                const isActive = activeClassification === item.key
                 return (
                   <Cell
-                    key={item.Classification}
+                    key={item.key}
                     fill="var(--color-total)"
                     fillOpacity={hasActiveClassification && !isActive ? 0.35 : 1}
                   />

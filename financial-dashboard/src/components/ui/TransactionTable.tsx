@@ -14,19 +14,26 @@ import { Input } from "@/components/ui/input"
 import { DeleteTransactionDialog } from "@/components/ui/DeleteTransactionDialog"
 import { NormalizeTransactionDialog } from "@/components/ui/NormalizeTransactionDialog"
 import { ReclassifyTransactionDialog } from "@/components/ui/ReclassifyTransactionDialog"
+import { TagChipList } from "@/components/ui/TagChip"
+import { TagTransactionsDialog } from "@/components/ui/TagTransactionsDialog"
+import { getTransactionKey } from "@/lib/tags"
 import { formatTransactionDate, getTransactionDateSortValue } from "@/lib/transactionDate"
 import { cn } from "@/lib/utils"
+import { GroupBy } from "@/types/Tag"
 import { Transaction } from "@/types/Transaction"
 import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
   ArrowRight,
+  Check,
+  Minus,
   PencilLine,
   RefreshCcw,
   Search,
   SlidersHorizontal,
   Split,
+  Tag,
   Trash2,
   X,
 } from "lucide-react"
@@ -39,6 +46,46 @@ interface TransactionTableProps {
   activeClassification?: string | null
   hasActiveClassificationFilter?: boolean
   onResetFilters?: () => void
+  /** Known tag names (most relevant first) for tag suggestions. */
+  knownTags?: string[]
+  /** Called when a tag chip on a row is clicked. */
+  onTagClick?: (tag: string) => void
+  groupBy?: GroupBy
+}
+
+function SelectBox({
+  checked,
+  indeterminate = false,
+  onToggle,
+  label,
+}: {
+  checked: boolean
+  indeterminate?: boolean
+  onToggle: () => void
+  label: string
+}) {
+  const isOn = checked || indeterminate
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={indeterminate ? "mixed" : checked}
+      aria-label={label}
+      onClick={onToggle}
+      className="group/select -m-2 inline-flex shrink-0 items-center justify-center p-2 outline-none"
+    >
+      <span
+        className={cn(
+          "flex size-4 items-center justify-center rounded-[5px] border transition group-focus-visible/select:ring-2 group-focus-visible/select:ring-ring/50",
+          isOn
+            ? "border-primary bg-primary text-primary-foreground"
+            : "border-input bg-background group-hover/select:border-primary/60"
+        )}
+      >
+        {checked ? <Check className="size-3" /> : indeterminate ? <Minus className="size-3" /> : null}
+      </span>
+    </button>
+  )
 }
 
 const PAGE_SIZE = 10
@@ -163,6 +210,9 @@ export function TransactionTable({
   activeClassification,
   hasActiveClassificationFilter = false,
   onResetFilters,
+  knownTags = [],
+  onTagClick,
+  groupBy = "classification",
 }: TransactionTableProps) {
   const [currentPage, setCurrentPage] = React.useState(1)
   const [sortKey, setSortKey] = React.useState<SortKey>("Date")
@@ -171,6 +221,8 @@ export function TransactionTable({
   const [reclassifyTarget, setReclassifyTarget] = React.useState<Transaction | null>(null)
   const [normalizeTarget, setNormalizeTarget] = React.useState<Transaction | null>(null)
   const [deleteTarget, setDeleteTarget] = React.useState<Transaction | null>(null)
+  const [tagTargets, setTagTargets] = React.useState<Transaction[] | null>(null)
+  const [selectedKeys, setSelectedKeys] = React.useState<Set<string>>(new Set())
   const deferredReceiverQuery = React.useDeferredValue(receiverQuery)
   const normalizedReceiverQuery = deferredReceiverQuery.trim().toLowerCase()
 
@@ -179,7 +231,11 @@ export function TransactionTable({
       return data
     }
 
-    return data.filter((tx) => tx.Receiver.toLowerCase().includes(normalizedReceiverQuery))
+    return data.filter(
+      (tx) =>
+        tx.Receiver.toLowerCase().includes(normalizedReceiverQuery) ||
+        Boolean(tx.Tags?.some((tag) => tag.toLowerCase().includes(normalizedReceiverQuery)))
+    )
   }, [data, normalizedReceiverQuery])
 
   const sortedRows = React.useMemo(() => {
@@ -236,6 +292,55 @@ export function TransactionTable({
     return sortedRows.slice(start, start + PAGE_SIZE)
   }, [currentPage, sortedRows])
 
+  // Selections refer to the rows currently loaded; a refetch starts fresh.
+  React.useEffect(() => {
+    setSelectedKeys(new Set())
+  }, [data])
+
+  const selectedRows = React.useMemo(
+    () => filteredData.filter((tx) => selectedKeys.has(getTransactionKey(tx))),
+    [filteredData, selectedKeys]
+  )
+  const selectedTotal = React.useMemo(
+    () => selectedRows.reduce((sum, tx) => sum + parseAmount(tx.Amount), 0),
+    [selectedRows]
+  )
+  const pageKeys = React.useMemo(
+    () => paginatedRows.map(({ tx }) => getTransactionKey(tx)),
+    [paginatedRows]
+  )
+  const selectedOnPage = pageKeys.filter((key) => selectedKeys.has(key)).length
+  const isPageSelected = pageKeys.length > 0 && selectedOnPage === pageKeys.length
+
+  const toggleRow = React.useCallback((tx: Transaction) => {
+    const key = getTransactionKey(tx)
+    setSelectedKeys((current) => {
+      const next = new Set(current)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
+  }, [])
+
+  const togglePage = React.useCallback(() => {
+    setSelectedKeys((current) => {
+      const next = new Set(current)
+      if (pageKeys.every((key) => next.has(key))) {
+        pageKeys.forEach((key) => next.delete(key))
+      } else {
+        pageKeys.forEach((key) => next.add(key))
+      }
+      return next
+    })
+  }, [pageKeys])
+
+  const selectAllMatching = React.useCallback(() => {
+    setSelectedKeys(new Set(filteredData.map(getTransactionKey)))
+  }, [filteredData])
+
   const renderSortIcon = React.useCallback(
     (column: SortKey) => {
       if (sortKey !== column) {
@@ -271,8 +376,8 @@ export function TransactionTable({
                 type="search"
                 value={receiverQuery}
                 onChange={(event) => setReceiverQuery(event.target.value)}
-                placeholder="Search by receiver"
-                aria-label="Search transactions by receiver"
+                placeholder="Search receiver or tag"
+                aria-label="Search transactions by receiver or tag"
                 className="h-9 rounded-full pr-10 pl-9"
               />
               {hasReceiverQuery ? (
@@ -313,12 +418,14 @@ export function TransactionTable({
               </div>
               <p className="mt-4 text-sm font-medium">
                 {hasReceiverQuery
-                  ? "No transactions match this receiver search."
-                  : "No transactions match the current classification filter."}
+                  ? "No transactions match this search."
+                  : groupBy === "tag"
+                    ? "No transactions match the current tag filter."
+                    : "No transactions match the current classification filter."}
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
                 {hasReceiverQuery
-                  ? "Try a different receiver name or clear the search."
+                  ? "Try a different receiver or tag, or clear the search."
                   : "Reset the filter to see all transactions in this date range."}
               </p>
               {hasReceiverQuery ? (
@@ -339,17 +446,70 @@ export function TransactionTable({
                   onClick={onResetFilters}
                 >
                   <ArrowRight className="size-4" />
-                  Show all classifications
+                  {groupBy === "tag" ? "Show all tags" : "Show all classifications"}
                 </Button>
               ) : null}
             </div>
           ) : (
             <>
+              {selectedRows.length > 0 ? (
+                <div
+                  role="region"
+                  aria-label="Selected transactions"
+                  className="mb-4 flex flex-col gap-3 rounded-2xl border border-primary/25 bg-primary/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0 text-sm">
+                    <span className="font-medium">
+                      {selectedRows.length} selected
+                    </span>
+                    <span className="text-muted-foreground"> · {formatAmount(String(selectedTotal))}</span>
+                    {selectedRows.length < filteredData.length ? (
+                      <button
+                        type="button"
+                        onClick={selectAllMatching}
+                        className="ml-2 text-primary hover:underline"
+                      >
+                        Select all {filteredData.length}
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-9 rounded-full px-4"
+                      onClick={() => setTagTargets(selectedRows)}
+                    >
+                      <Tag className="size-4" />
+                      Tag selected
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-9 rounded-full"
+                      onClick={() => setSelectedKeys(new Set())}
+                    >
+                      <X className="size-4" />
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
               <div className="mb-4 flex flex-col gap-2 sm:hidden">
                 <div className="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">
                   Sort Transactions
                 </div>
-                <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+                <div className="-mx-1 flex items-center gap-2 overflow-x-auto px-1 pb-1">
+                  <div className="flex h-9 shrink-0 items-center rounded-full border border-border/70 px-3">
+                    <SelectBox
+                      checked={isPageSelected}
+                      indeterminate={!isPageSelected && selectedOnPage > 0}
+                      onToggle={togglePage}
+                      label="Select all transactions on this page"
+                    />
+                  </div>
                   {SORT_COLUMNS.map((column) => {
                     const isActive = sortKey === column.key
 
@@ -377,6 +537,14 @@ export function TransactionTable({
                 <table className="min-w-full text-sm">
                   <thead className="hidden bg-muted/40 text-left text-muted-foreground sm:table-header-group">
                     <tr>
+                      <th className="w-10 py-3 pr-0 pl-4">
+                        <SelectBox
+                          checked={isPageSelected}
+                          indeterminate={!isPageSelected && selectedOnPage > 0}
+                          onToggle={togglePage}
+                          label="Select all transactions on this page"
+                        />
+                      </th>
                       {SORT_COLUMNS.map((column) => {
                         const isActive = sortKey === column.key
                         const ariaSort = isActive
@@ -415,11 +583,26 @@ export function TransactionTable({
                     </tr>
                   </thead>
                   <tbody>
-                    {paginatedRows.map(({ tx, renderKey }) => (
-                      <tr key={renderKey} className="block border-t border-border/70 align-top sm:table-row">
-                        <td className="p-0 sm:hidden" colSpan={5}>
+                    {paginatedRows.map(({ tx, renderKey }) => {
+                      const isSelected = selectedKeys.has(getTransactionKey(tx))
+                      return (
+                      <tr
+                        key={renderKey}
+                        className={cn(
+                          "block border-t border-border/70 align-top sm:table-row",
+                          isSelected && "bg-primary/5"
+                        )}
+                      >
+                        <td className="p-0 sm:hidden" colSpan={6}>
                           <div className="space-y-3 px-4 py-3">
-                            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+                            <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3">
+                              <div className="pt-1">
+                                <SelectBox
+                                  checked={isSelected}
+                                  onToggle={() => toggleRow(tx)}
+                                  label={`Select transaction to ${tx.Receiver}`}
+                                />
+                              </div>
                               <div className="min-w-0">
                                 <div className="text-[11px] text-muted-foreground">
                                   {formatTransactionDate(tx.Date)}
@@ -433,6 +616,8 @@ export function TransactionTable({
                               </div>
                             </div>
 
+                            <TagChipList tags={tx.Tags} onTagClick={onTagClick} />
+
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <Badge
                                 variant="outline"
@@ -444,6 +629,16 @@ export function TransactionTable({
                                 {tx.Classification}
                               </Badge>
                               <div className="flex flex-wrap justify-end gap-2">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 rounded-full"
+                                  onClick={() => setTagTargets([tx])}
+                                >
+                                  <Tag className="size-3.5" />
+                                  Tag
+                                </Button>
                                 <Button
                                   type="button"
                                   size="sm"
@@ -478,10 +673,20 @@ export function TransactionTable({
                             </div>
                           </div>
                         </td>
+                        <td className="hidden py-3 pr-0 pl-4 sm:table-cell">
+                          <SelectBox
+                            checked={isSelected}
+                            onToggle={() => toggleRow(tx)}
+                            label={`Select transaction to ${tx.Receiver}`}
+                          />
+                        </td>
                         <td className="hidden px-4 py-3 whitespace-nowrap text-muted-foreground sm:table-cell">
                           {formatTransactionDate(tx.Date)}
                         </td>
-                        <td className="hidden px-4 py-3 font-medium sm:table-cell">{tx.Receiver}</td>
+                        <td className="hidden px-4 py-3 font-medium sm:table-cell">
+                          {tx.Receiver}
+                          <TagChipList tags={tx.Tags} onTagClick={onTagClick} className="mt-1.5" />
+                        </td>
                         <td className="hidden px-4 py-3 sm:table-cell">
                           <Badge
                             variant="outline"
@@ -498,6 +703,17 @@ export function TransactionTable({
                         </td>
                         <td className="hidden px-4 py-3 sm:table-cell">
                           <div className="flex justify-end gap-2">
+                            <Button
+                              type="button"
+                              size="icon-sm"
+                              variant="outline"
+                              aria-label={`Tag transaction to ${tx.Receiver}`}
+                              title="Tag"
+                              className="rounded-full"
+                              onClick={() => setTagTargets([tx])}
+                            >
+                              <Tag className="size-3.5" />
+                            </Button>
                             <Button
                               type="button"
                               size="sm"
@@ -531,7 +747,8 @@ export function TransactionTable({
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -589,6 +806,20 @@ export function TransactionTable({
             }
           }}
           transaction={normalizeTarget}
+          onSuccess={refetch}
+        />
+      ) : null}
+
+      {tagTargets ? (
+        <TagTransactionsDialog
+          open={Boolean(tagTargets)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setTagTargets(null)
+            }
+          }}
+          transactions={tagTargets}
+          knownTags={knownTags}
           onSuccess={refetch}
         />
       ) : null}

@@ -91,6 +91,12 @@ or dialog must follow these rules. Do not introduce new visual styles.
 - Empty states: dashed-border card, centered icon chip, short title + description, one action.
 - Charts use `ChartContainer` from `src/components/ui/chart.tsx` with `var(--chart-*)` colors only.
 - Loading states: lucide `Loader2`/`LoaderCircle` with `animate-spin`; refresh icons spin while busy.
+- Tags: optional user labels (`Transaction.Tags`, omitted by the API when empty) that group
+  spending across classifications. Show them with `TagChip`/`TagChipList` (primary tint + lucide
+  `Tag` icon, distinct from classification badges); edit with `TagInput` +
+  `TagTransactionsDialog` (one or many transactions). The dashboard's `GroupByToggle` switches
+  every widget between classification and tag grouping — new widgets must accept a
+  `groupBy` prop and bucket with `getGroupKeys` from `src/lib/tags.ts`.
 
 ## Voice
 - Copy is concrete and product-specific (transactions, categories, date ranges) — never

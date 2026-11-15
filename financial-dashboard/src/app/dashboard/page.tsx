@@ -11,11 +11,13 @@ import { Transaction } from "@/types/Transaction"
 import { TransactionTable } from "@/components/ui/TransactionTable"
 import { GlowingLineChart } from "@/components/ui/glowing-line"
 import { VerticalBarChart } from "@/components/ui/VerticalBarChart"
-import { ClassificationFilter } from "@/components/ui/ClassificationFilter"
+import { ClassificationFilter, GroupFilter } from "@/components/ui/ClassificationFilter"
 import { AddTransactionDialog } from "@/components/ui/AddTransactionDialog"
 import { ClassificationSettingsDialog } from "@/components/ui/ClassificationSettingsDialog"
 import { ReauthWarning } from "@/components/ui/ReauthWarning"
 import { TopReceivers } from "@/components/ui/TopReceivers"
+import { TagBreakdown } from "@/components/ui/TagBreakdown"
+import { ManageTagDialog, type ManageTagAction } from "@/components/ui/ManageTagDialog"
 import { Button } from "@/components/ui/button"
 import { GoogleSignInButton } from "@/components/ui/GoogleSignInButton"
 import { useTokenStatus } from "@/hooks/useTokenStatus"
@@ -28,6 +30,18 @@ import { formatLocalDate } from "@/lib/utils"
 import { getTransactionDateKey, formatTransactionDateKey } from "@/lib/transactionDate"
 import { isAuthTokenUnavailableError, useAuthedFetch } from "@/lib/useAuthedFetch"
 import { UpdateClassificationSettingsRequest } from "@/types/ClassificationSettings"
+import { GroupBy, TagSummary } from "@/types/Tag"
+import {
+  UNTAGGED_KEY,
+  collectTags,
+  formatGroupLabel,
+  getGroupKeys,
+  getTagRange,
+  groupTotals,
+  hasTags,
+  normalizeTagSummaries,
+} from "@/lib/tags"
+import { cn } from "@/lib/utils"
 import {
   Card,
   CardContent,
@@ -41,11 +55,14 @@ import { ClassificationSettings } from "@/types/ClassificationSettings"
 import {
   ArrowLeft,
   CalendarClock,
+  Layers,
   Plus,
   Receipt,
   SearchX,
   ShieldAlert,
   SlidersHorizontal,
+  Tag,
+  Tags,
   Wallet,
   X,
 } from "lucide-react"
@@ -69,6 +86,72 @@ function sumAmounts(transactions: Transaction[]) {
   )
 }
 
+function summarizePeriod(transactions: Transaction[]) {
+  const tagged = transactions.filter(hasTags)
+  return {
+    total: sumAmounts(transactions),
+    count: transactions.length,
+    taggedTotal: sumAmounts(tagged),
+    taggedCount: tagged.length,
+  }
+}
+
+function GroupByToggle({
+  value,
+  onChange,
+  tagCount,
+}: {
+  value: GroupBy
+  onChange: (value: GroupBy) => void
+  tagCount: number
+}) {
+  const options: Array<{ value: GroupBy; label: string; icon: typeof Layers; count?: number }> = [
+    { value: "classification", label: "Classifications", icon: Layers },
+    { value: "tag", label: "Tags", icon: Tags, count: tagCount },
+  ]
+
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Group dashboard by"
+      className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-card/80 p-1 shadow-sm backdrop-blur"
+    >
+      {options.map((option) => {
+        const isActive = value === option.value
+        const Icon = option.icon
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={isActive}
+            onClick={() => onChange(option.value)}
+            className={cn(
+              "inline-flex h-9 items-center gap-2 rounded-full px-3.5 text-sm font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-ring/50 sm:px-4",
+              isActive
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Icon className="size-4" />
+            {option.label}
+            {option.count !== undefined && option.count > 0 ? (
+              <span
+                className={cn(
+                  "rounded-full px-1.5 text-xs tabular-nums",
+                  isActive ? "bg-primary-foreground/20" : "bg-muted text-foreground"
+                )}
+              >
+                {option.count}
+              </span>
+            ) : null}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 function percentChange(current: number, previous: number): number | null {
   if (previous <= 0) {
     return null
@@ -79,8 +162,14 @@ function percentChange(current: number, previous: number): number | null {
 export default function DashboardPage() {
   const [data, setData] = React.useState<Transaction[]>([])
   const [dateRange, setDateRange] = React.useState<{ from: Date; to: Date } | null>(null)
-  const [previousPeriod, setPreviousPeriod] = React.useState<{ total: number; count: number } | null>(null)
+  const [previousPeriod, setPreviousPeriod] = React.useState<ReturnType<typeof summarizePeriod> | null>(null)
   const [selectedClassifications, setSelectedClassifications] = React.useState<Set<string>>(new Set())
+  const [groupBy, setGroupBy] = React.useState<GroupBy>("classification")
+  const [selectedTags, setSelectedTags] = React.useState<Set<string>>(new Set())
+  const [allTags, setAllTags] = React.useState<TagSummary[]>([])
+  const [requestedRange, setRequestedRange] = React.useState<{ from: Date; to: Date } | null>(null)
+  const [manageTagAction, setManageTagAction] = React.useState<ManageTagAction | null>(null)
+  const pendingTagFocusRef = React.useRef<string | null>(null)
   const [isInitialLoad, setIsInitialLoad] = React.useState(true)
   const [isAddDialogOpen, setIsAddDialogOpen] = React.useState(false)
   const [isClassificationSettingsOpen, setIsClassificationSettingsOpen] = React.useState(false)
@@ -128,6 +217,22 @@ export default function DashboardPage() {
     const payload = await response.json()
     setData(normalizeTransactions(payload))
     setIsInitialLoad(false)
+  }, [authedFetch, website_url])
+
+  const fetchTags = React.useCallback(async () => {
+    if (!website_url) {
+      return
+    }
+    try {
+      const response = await authedFetch(`${website_url}/tags`)
+      if (response.ok) {
+        setAllTags(normalizeTagSummaries(await response.json()))
+      }
+    } catch (error) {
+      if (!isAuthTokenUnavailableError(error)) {
+        console.error("Failed to fetch tags:", error)
+      }
+    }
   }, [authedFetch, website_url])
 
   const fetchClassificationSettings = React.useCallback(async () => {
@@ -200,7 +305,8 @@ export default function DashboardPage() {
     fetchClassificationSettings().catch((error) => {
       console.error("Failed to refresh classification settings:", error)
     })
-  }, [fetchClassificationSettings, isLoaded, user])
+    fetchTags()
+  }, [fetchClassificationSettings, fetchTags, isLoaded, user])
 
   // Fetch the equally-sized period immediately before the active range so the
   // stat cards can show period-over-period trends.
@@ -231,7 +337,7 @@ export default function DashboardPage() {
         }
         const payload = normalizeTransactions(await response.json())
         if (!cancelled) {
-          setPreviousPeriod({ total: sumAmounts(payload), count: payload.length })
+          setPreviousPeriod(summarizePeriod(payload))
         }
       } catch {
         if (!cancelled) setPreviousPeriod(null)
@@ -251,13 +357,54 @@ export default function DashboardPage() {
 
   const refetch = React.useCallback(() => {
     if (dateRange) fetchData(dateRange)
-  }, [dateRange, fetchData])
+    fetchTags()
+  }, [dateRange, fetchData, fetchTags])
 
-  // Filter data based on selected classifications
+  const isTagView = groupBy === "tag"
+
+  // Tags in the loaded range, ordered by spend. "Untagged" is offered but off by default.
+  const tagsInRange = React.useMemo(() => collectTags(data), [data])
+  const tagFilterOptions = React.useMemo(
+    () => (data.some((tx) => !hasTags(tx)) ? [...tagsInRange, UNTAGGED_KEY] : tagsInRange),
+    [data, tagsInRange]
+  )
+
+  // Fresh data resets the tag filter, like the classification filter does.
+  React.useEffect(() => {
+    const pending = pendingTagFocusRef.current
+    pendingTagFocusRef.current = null
+    if (pending && tagsInRange.includes(pending)) {
+      setSelectedTags(new Set([pending]))
+      return
+    }
+    setSelectedTags(new Set(tagsInRange))
+  }, [tagsInRange])
+
+  const isDefaultTagSelection = React.useMemo(
+    () =>
+      selectedTags.size === 0 ||
+      (selectedTags.size === tagsInRange.length && tagsInRange.every((tag) => selectedTags.has(tag))),
+    [selectedTags, tagsInRange]
+  )
+
+  // Filter data based on selected classifications (or tags in tag view)
   const filteredData = React.useMemo(() => {
+    if (isTagView) {
+      if (selectedTags.size === 0) return data.filter(hasTags)
+      return data.filter((tx) => getGroupKeys(tx, "tag").some((key) => selectedTags.has(key)))
+    }
     if (selectedClassifications.size === 0) return data
     return data.filter((tx) => selectedClassifications.has(tx.Classification))
-  }, [data, selectedClassifications])
+  }, [data, isTagView, selectedClassifications, selectedTags])
+
+  // Charts in tag view only count the selected tags, so a focused tag isn't joined by the
+  // other tags its transactions happen to carry. The table keeps every tag visible.
+  const chartData = React.useMemo(() => {
+    if (!isTagView || selectedTags.size === 0) return filteredData
+    return filteredData.map((tx) =>
+      tx.Tags ? { ...tx, Tags: tx.Tags.filter((tag) => selectedTags.has(tag)) } : tx
+    )
+  }, [filteredData, isTagView, selectedTags])
 
   const availableClassifications = React.useMemo(() => {
     const unique = new Set<string>()
@@ -281,25 +428,36 @@ export default function DashboardPage() {
     return Array.from(selectedClassifications)[0] ?? null
   }, [selectedClassifications])
 
+  const singleActiveTag = React.useMemo(() => {
+    if (selectedTags.size !== 1) {
+      return null
+    }
+    return Array.from(selectedTags)[0] ?? null
+  }, [selectedTags])
+
+  const isAllGroupsSelected = isTagView ? isDefaultTagSelection : isAllClassificationsSelected
+  const singleActiveGroup = isTagView ? singleActiveTag : singleActiveClassification
+
   const topClassification = React.useMemo(() => {
     if (filteredData.length === 0) {
       return null
     }
 
-    const totals = filteredData.reduce<Record<string, number>>((acc, tx) => {
-      const amount = Number.parseFloat(tx.Amount.replace(/,/g, "")) || 0
-      acc[tx.Classification] = (acc[tx.Classification] ?? 0) + amount
-      return acc
-    }, {})
+    const [classification, entry] =
+      Array.from(groupTotals(chartData, groupBy).entries()).sort(
+        (a, b) => b[1].amount - a[1].amount
+      )[0] ?? []
 
-    const [classification, amount] =
-      Object.entries(totals).sort((a, b) => b[1] - a[1])[0] ?? []
-
-    return classification ? { classification, amount } : null
-  }, [filteredData])
+    return classification ? { classification: formatGroupLabel(classification), amount: entry.amount } : null
+  }, [chartData, groupBy])
 
   const totalSpend = React.useMemo(() => sumAmounts(filteredData), [filteredData])
-  const unfilteredTotal = React.useMemo(() => sumAmounts(data), [data])
+  const taggedData = React.useMemo(() => data.filter(hasTags), [data])
+  const unfilteredTotal = React.useMemo(
+    () => sumAmounts(isTagView ? taggedData : data),
+    [data, isTagView, taggedData]
+  )
+  const unfilteredCount = isTagView ? taggedData.length : data.length
 
   const rangeDays = React.useMemo(() => {
     if (!dateRange) {
@@ -337,7 +495,10 @@ export default function DashboardPage() {
     if (!previousPeriod) {
       return undefined
     }
-    const percent = percentChange(unfilteredTotal, previousPeriod.total)
+    const percent = percentChange(
+      unfilteredTotal,
+      isTagView ? previousPeriod.taggedTotal : previousPeriod.total
+    )
     if (percent == null) {
       return undefined
     }
@@ -346,18 +507,21 @@ export default function DashboardPage() {
       label: "vs previous period",
       sentiment: percent > 0 ? "negative" : "positive",
     }
-  }, [previousPeriod, unfilteredTotal])
+  }, [isTagView, previousPeriod, unfilteredTotal])
 
   const countTrend = React.useMemo<StatTrend | undefined>(() => {
     if (!previousPeriod) {
       return undefined
     }
-    const percent = percentChange(data.length, previousPeriod.count)
+    const percent = percentChange(
+      unfilteredCount,
+      isTagView ? previousPeriod.taggedCount : previousPeriod.count
+    )
     if (percent == null) {
       return undefined
     }
     return { percent, label: "vs previous", sentiment: "neutral" }
-  }, [data.length, previousPeriod])
+  }, [isTagView, previousPeriod, unfilteredCount])
 
   const rangeLabel = React.useMemo(() => {
     if (!dateRange) {
@@ -378,6 +542,46 @@ export default function DashboardPage() {
   const handleResetClassificationFocus = React.useCallback(() => {
     setSelectedClassifications(new Set(availableClassifications))
   }, [availableClassifications])
+
+  const handleTagFocus = React.useCallback((tag: string) => {
+    // Selecting the focused tag again returns to every tag.
+    if (selectedTags.size === 1 && selectedTags.has(tag)) {
+      setSelectedTags(new Set(tagsInRange))
+      return
+    }
+    setSelectedTags(new Set([tag]))
+  }, [selectedTags, tagsInRange])
+
+  const handleResetTagFocus = React.useCallback(() => {
+    setSelectedTags(new Set(tagsInRange))
+  }, [tagsInRange])
+
+  const handleGroupFocus = isTagView ? handleTagFocus : handleClassificationFocus
+  const handleResetGroupFocus = isTagView ? handleResetTagFocus : handleResetClassificationFocus
+
+  // Clicking a tag on a transaction row opens the tag view focused on it.
+  const handleTagChipClick = React.useCallback((tag: string) => {
+    setGroupBy("tag")
+    setSelectedTags(new Set([tag]))
+  }, [])
+
+  const handleShowTagSpan = React.useCallback((summary: TagSummary) => {
+    pendingTagFocusRef.current = summary.name
+    setGroupBy("tag")
+    setRequestedRange(getTagRange(summary))
+  }, [])
+
+  // The breakdown always lists every tag in range (plus Untagged when selected) and dims the rest.
+  const breakdownKeys = React.useMemo(
+    () => new Set([...tagsInRange, ...selectedTags]),
+    [selectedTags, tagsInRange]
+  )
+
+  const knownTagNames = React.useMemo(() => allTags.map((tag) => tag.name), [allTags])
+  const tagsOutsideRange = React.useMemo(
+    () => allTags.filter((tag) => !tagsInRange.some((name) => name.toLowerCase() === tag.name.toLowerCase())),
+    [allTags, tagsInRange]
+  )
 
   const handleClassificationSettingsSave = React.useCallback(async (payload: UpdateClassificationSettingsRequest) => {
     if (!website_url) {
@@ -501,36 +705,55 @@ export default function DashboardPage() {
                   Spending overview
                 </h1>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {rangeLabel} · {filteredData.length} transaction{filteredData.length === 1 ? "" : "s"} in view
+                  {rangeLabel} · {filteredData.length} {isTagView ? "tagged " : ""}transaction{filteredData.length === 1 ? "" : "s"} in view
                 </p>
               </div>
+              <GroupByToggle value={groupBy} onChange={setGroupBy} tagCount={tagsInRange.length} />
             </div>
 
             <DateRangeForm
               onDataFetched={handleDataFetched}
               showInlinePresets
+              requestedRange={requestedRange}
               actions={
                 <>
-                  {data.length > 0 ? (
+                  {data.length > 0 && (!isTagView || tagFilterOptions.length > 0) ? (
                     <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
-                      <ClassificationFilter
-                        data={data}
-                        selectedClassifications={selectedClassifications}
-                        onSelectionChange={setSelectedClassifications}
-                      />
-                      {!isAllClassificationsSelected ? (
-                        <div className="flex items-center gap-2 rounded-full border border-border/70 bg-card/80 px-3 py-2 text-sm text-muted-foreground shadow-sm">
+                      {isTagView ? (
+                        <GroupFilter
+                          options={tagFilterOptions}
+                          defaultSelection={tagsInRange}
+                          selected={selectedTags}
+                          onSelectionChange={setSelectedTags}
+                          autoReset={false}
+                          title="Tags"
+                          allLabel="All tags"
+                          emptyLabel="No tags in this range"
+                          icon={Tag}
+                          formatOption={formatGroupLabel}
+                        />
+                      ) : (
+                        <ClassificationFilter
+                          data={data}
+                          selectedClassifications={selectedClassifications}
+                          onSelectionChange={setSelectedClassifications}
+                        />
+                      )}
+                      {!isAllGroupsSelected ? (
+                        <div className="flex min-w-0 items-center gap-2 rounded-full border border-border/70 bg-card/80 px-3 py-2 text-sm text-muted-foreground shadow-sm">
                           <span className="truncate">
-                            {singleActiveClassification
-                              ? `Focused: ${singleActiveClassification}`
-                              : `Filtered: ${selectedClassifications.size} classifications`}
+                            {singleActiveGroup
+                              ? `Focused: ${formatGroupLabel(singleActiveGroup)}`
+                              : isTagView
+                                ? `Filtered: ${selectedTags.size} tag${selectedTags.size === 1 ? "" : "s"}`
+                                : `Filtered: ${selectedClassifications.size} classifications`}
                           </span>
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
                             className="h-7 rounded-full px-2"
-                            onClick={handleResetClassificationFocus}
+                            onClick={handleResetGroupFocus}
                           >
                             <X className="size-3.5" />
                             Show all
@@ -566,7 +789,7 @@ export default function DashboardPage() {
                   <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary-foreground/15">
                     <Wallet className="size-4" />
                   </span>
-                  Total Spend
+                  {isTagView ? "Tagged Spend" : "Total Spend"}
                 </CardDescription>
                 <div className="flex flex-wrap items-center gap-3">
                   <CardTitle className="text-3xl font-semibold tracking-tight sm:text-4xl">
@@ -583,13 +806,15 @@ export default function DashboardPage() {
               <CardContent className="relative pt-0 text-sm text-primary-foreground/80">
                 {rangeLabel} · {filteredData.length} transaction{filteredData.length === 1 ? "" : "s"}
                 {topClassification
-                  ? ` · most spent on ${topClassification.classification}`
+                  ? isTagView
+                    ? ` · top tag ${topClassification.classification}`
+                    : ` · most spent on ${topClassification.classification}`
                   : ""}
               </CardContent>
             </Card>
             <StatCard
               icon={Receipt}
-              label="Transactions"
+              label={isTagView ? "Tagged Transactions" : "Transactions"}
               value={filteredData.length}
               trend={countTrend}
               hint={
@@ -617,6 +842,16 @@ export default function DashboardPage() {
             onOpenChange={setIsAddDialogOpen}
             onSuccess={refetch}
             classificationCategories={classificationSettings.categories}
+            knownTags={knownTagNames}
+          />
+
+          <ManageTagDialog
+            action={manageTagAction}
+            onOpenChange={(open) => {
+              if (!open) setManageTagAction(null)
+            }}
+            allTags={allTags}
+            onSuccess={refetch}
           />
 
           <ClassificationSettingsDialog
@@ -626,7 +861,55 @@ export default function DashboardPage() {
             onSave={handleClassificationSettingsSave}
           />
 
-          {data.length === 0 ? (
+          {isTagView && filteredData.length === 0 ? (
+            <Card className="rounded-[1.75rem] border-dashed border-border/70 bg-card/85 shadow-sm">
+              <CardContent className="flex flex-col items-center gap-4 py-10 text-center">
+                <span className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <Tags className="size-6" />
+                </span>
+                <div className="space-y-1.5">
+                  <CardTitle className="text-xl font-semibold tracking-tight">
+                    No tagged transactions in this range
+                  </CardTitle>
+                  <CardDescription className="mx-auto max-w-md leading-6">
+                    Tags group related spending, like a trip or a wedding, across
+                    classifications. Select transactions in the table and choose Tag selected.
+                  </CardDescription>
+                </div>
+                {tagsOutsideRange.length > 0 ? (
+                  <div className="flex max-w-xl flex-col items-center gap-2">
+                    <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                      Your tags in other dates
+                    </span>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {tagsOutsideRange.slice(0, 8).map((tag) => (
+                        <Button
+                          key={tag.name}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 max-w-full rounded-full"
+                          onClick={() => handleShowTagSpan(tag)}
+                        >
+                          <Tag className="size-3.5 text-primary" />
+                          <span className="truncate">{tag.name}</span>
+                          <span className="text-muted-foreground">{formatCurrency(tag.total)}</span>
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                <Button
+                  onClick={() => setGroupBy("classification")}
+                  variant="outline"
+                  className="h-10 rounded-full px-4"
+                >
+                  <Layers className="size-4" />
+                  Back to classifications
+                </Button>
+              </CardContent>
+            </Card>
+          ) : data.length === 0 ? (
             <Card className="rounded-[1.75rem] border-dashed border-border/70 bg-card/85 shadow-sm">
               <CardContent className="flex flex-col items-center gap-4 py-10 text-center">
                 <span className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -654,25 +937,50 @@ export default function DashboardPage() {
           ) : (
             <>
               <div className="grid grid-cols-1 gap-4 sm:gap-6 xl:grid-cols-12">
+                {isTagView ? (
+                  <div className="min-w-0 xl:col-span-12">
+                    <TagBreakdown
+                      data={data}
+                      visibleKeys={breakdownKeys}
+                      selectedKeys={selectedTags}
+                      activeTag={singleActiveTag}
+                      onTagSelect={handleTagFocus}
+                      allTags={allTags}
+                      dateRange={dateRange}
+                      onShowFullSpan={handleShowTagSpan}
+                      onRename={(tag) => setManageTagAction({ mode: "rename", tag })}
+                      onDelete={(tag) => setManageTagAction({ mode: "delete", tag })}
+                    />
+                  </div>
+                ) : null}
                 <div className="min-w-0 xl:col-span-8">
-                  <GlowingLineChart data={filteredData} />
+                  <GlowingLineChart data={chartData} groupBy={groupBy} />
                 </div>
                 <div className="min-w-0 xl:col-span-4">
                   <PieChartComponent
-                    data={filteredData}
-                    activeClassification={singleActiveClassification}
-                    onClassificationSelect={handleClassificationFocus}
+                    data={chartData}
+                    activeClassification={singleActiveGroup}
+                    onClassificationSelect={handleGroupFocus}
+                    groupBy={groupBy}
                   />
                 </div>
                 <div className="min-w-0 xl:col-span-7">
                   <VerticalBarChart
-                    data={filteredData}
-                    activeClassification={singleActiveClassification}
-                    onClassificationSelect={handleClassificationFocus}
+                    data={chartData}
+                    activeClassification={singleActiveGroup}
+                    onClassificationSelect={handleGroupFocus}
+                    groupBy={groupBy}
                   />
                 </div>
                 <div className="min-w-0 xl:col-span-5">
-                  <TopReceivers data={filteredData} />
+                  <TopReceivers
+                    data={filteredData}
+                    description={
+                      isTagView
+                        ? "Where the most tagged money went in this range."
+                        : undefined
+                    }
+                  />
                 </div>
               </div>
 
@@ -681,9 +989,12 @@ export default function DashboardPage() {
                 refetch={refetch}
                 rangeLabel={rangeLabel}
                 classificationCategories={classificationSettings.categories}
-                activeClassification={singleActiveClassification}
-                hasActiveClassificationFilter={!isAllClassificationsSelected}
-                onResetFilters={handleResetClassificationFocus}
+                activeClassification={singleActiveGroup ? formatGroupLabel(singleActiveGroup) : null}
+                hasActiveClassificationFilter={!isAllGroupsSelected}
+                onResetFilters={handleResetGroupFocus}
+                knownTags={knownTagNames}
+                onTagClick={handleTagChipClick}
+                groupBy={groupBy}
               />
             </>
           )}

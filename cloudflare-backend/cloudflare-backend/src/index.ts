@@ -9,6 +9,7 @@ import {
   getDevClassificationSettings,
   getDevTokenStatus,
   getDevTransactions,
+  mutateDevTransactions,
   normalizeDevTransaction,
   reclassifyDevTransaction,
   upsertDevClassificationSettings,
@@ -22,9 +23,23 @@ import { extractAndClassifyTransaction } from './services/classifier'
 import { GmailService } from './services/gmail'
 import { normalizeClassificationSettingsInput } from './services/classification-settings'
 import {
+  applyTagChanges,
+  canonicalizeTags,
+  MAX_TAGS_PER_TRANSACTION,
+  normalizeTagList,
+  normalizeTagTargets,
+  removeTagEverywhere,
+  renameTagEverywhere,
+  requireTagName,
+  setTransactionTags,
+  summarizeTags,
+} from './services/tags'
+import {
   AddTransactionRequest,
+  ApplyTagsRequest,
   ClassificationPreviewRequest,
   DateRangeRequest,
+  DeleteTagRequest,
   DeleteTransactionRequest,
   Env,
   GmailPushEnvelope,
@@ -32,6 +47,7 @@ import {
   UpdateClassificationSettingsRequest,
   NormalizeRequest,
   ReclassifyRequest,
+  RenameTagRequest,
   Transaction,
   UserRole,
 } from './types'
@@ -243,6 +259,31 @@ function buildClassificationPreviewMessage(payload: ClassificationPreviewRequest
       ],
     },
   })
+}
+
+type AuthUser = { clerkUserId: string; email: string }
+
+async function readUserTransactions(env: Env, authUser: AuthUser): Promise<Transaction[]> {
+  if (isLocalDevMode(env)) {
+    return getDevTransactions()
+  }
+  const { users, transactions } = getRepositories(env)
+  await upsertAuthenticatedUser(env, users, authUser)
+  return transactions.getTransactions(authUser.clerkUserId)
+}
+
+async function mutateUserTransactions<T>(
+  env: Env,
+  authUser: AuthUser,
+  mutate: (items: Transaction[]) => T
+): Promise<T> {
+  if (isLocalDevMode(env)) {
+    return mutateDevTransactions(mutate)
+  }
+  const { users, transactions } = getRepositories(env)
+  await upsertAuthenticatedUser(env, users, authUser)
+  const { result } = await transactions.mutateTransactions(authUser.clerkUserId, mutate)
+  return result
 }
 
 async function seedLocalAiEvalTraces(env: Env, authUser: { clerkUserId: string; email: string }) {
@@ -620,9 +661,13 @@ app.post('/add-transaction', async (c) => {
   const authUser = await requireAuthenticatedUser(c)
   const payload = await parseJsonBody<AddTransactionRequest>(c.req.raw)
   ensureDateTime(payload.Date, 'Date')
+  const tags = normalizeTagList(payload.Tags, 'Tags')
+  if (tags.length > MAX_TAGS_PER_TRANSACTION) {
+    throw new HttpError(400, `A transaction can have at most ${MAX_TAGS_PER_TRANSACTION} tags.`)
+  }
 
   if (isLocalDevMode(c.env)) {
-    const transaction = addDevTransaction(authUser, payload)
+    const transaction = addDevTransaction(authUser, payload, tags)
     return c.json({ status: 'created', transaction })
   }
 
@@ -640,6 +685,7 @@ app.post('/add-transaction', async (c) => {
       Receiver: payload.Receiver.trim(),
       Date: payload.Date,
     }
+    setTransactionTags(transaction, canonicalizeTags(items, tags))
     items.push(transaction)
     return transaction
   })
@@ -749,6 +795,71 @@ app.post('/normalize', async (c) => {
   })
 
   return c.json({ status: 'updated', data: result.transactions, updated_transaction: result.result })
+})
+
+app.get('/tags', async (c) => {
+  const authUser = await requireAuthenticatedUser(c)
+  const items = await readUserTransactions(c.env, authUser)
+  return c.json({ tags: summarizeTags(items) })
+})
+
+app.post('/tags/apply', async (c) => {
+  const authUser = await requireAuthenticatedUser(c)
+  const payload = await parseJsonBody<ApplyTagsRequest>(c.req.raw)
+  const targets = normalizeTagTargets(payload?.transactions)
+  const add = normalizeTagList(payload?.add, 'add')
+  const remove = normalizeTagList(payload?.remove, 'remove')
+  if (add.length === 0 && remove.length === 0) {
+    throw new HttpError(400, 'Provide at least one tag to add or remove.')
+  }
+
+  const result = await mutateUserTransactions(c.env, authUser, (items) => {
+    const outcome = applyTagChanges(items, targets, add, remove)
+    if (outcome.updated.length === 0) {
+      throw new HttpError(404, 'Transaction not found.')
+    }
+    return {
+      updated: outcome.updated.length,
+      missing: outcome.missing,
+      updated_transactions: structuredClone(outcome.updated),
+      tags: summarizeTags(items),
+    }
+  })
+
+  return c.json({ status: 'updated', ...result })
+})
+
+app.post('/tags/rename', async (c) => {
+  const authUser = await requireAuthenticatedUser(c)
+  const payload = await parseJsonBody<RenameTagRequest>(c.req.raw)
+  const from = requireTagName(payload?.from, 'from')
+  const to = requireTagName(payload?.to, 'to')
+
+  const result = await mutateUserTransactions(c.env, authUser, (items) => {
+    const updated = renameTagEverywhere(items, from, to)
+    if (updated === 0) {
+      throw new HttpError(404, 'Tag not found.')
+    }
+    return { updated, tags: summarizeTags(items) }
+  })
+
+  return c.json({ status: 'updated', ...result })
+})
+
+app.post('/tags/delete', async (c) => {
+  const authUser = await requireAuthenticatedUser(c)
+  const payload = await parseJsonBody<DeleteTagRequest>(c.req.raw)
+  const tag = requireTagName(payload?.tag, 'tag')
+
+  const result = await mutateUserTransactions(c.env, authUser, (items) => {
+    const updated = removeTagEverywhere(items, tag)
+    if (updated === 0) {
+      throw new HttpError(404, 'Tag not found.')
+    }
+    return { updated, tags: summarizeTags(items) }
+  })
+
+  return c.json({ status: 'deleted', ...result })
 })
 
 app.post('/internal/pubsub/gmail', async (c) => {

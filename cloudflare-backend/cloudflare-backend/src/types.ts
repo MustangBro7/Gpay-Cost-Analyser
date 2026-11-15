@@ -132,6 +132,37 @@ export interface Transaction {
   PaidToMe?: string
   Payers?: Array<{ name: string; amount: string }>
   OriginalAmount?: string
+  /** Optional user-defined tags; omitted entirely when a transaction has none. */
+  Tags?: string[]
+}
+
+export interface TagTarget {
+  Date: string
+  Amount: string
+  Receiver?: string
+}
+
+export interface TagSummary {
+  name: string
+  count: number
+  total: number
+  firstDate: string
+  lastDate: string
+}
+
+export interface ApplyTagsRequest {
+  transactions: TagTarget[]
+  add?: string[]
+  remove?: string[]
+}
+
+export interface RenameTagRequest {
+  from: string
+  to: string
+}
+
+export interface DeleteTagRequest {
+  tag: string
 }
 
 export interface ClassificationSettings {
@@ -156,6 +187,7 @@ export interface AddTransactionRequest {
   Classification: string
   Receiver: string
   Date: string
+  Tags?: string[]
 }
 
 export interface ClassificationPreviewRequest {

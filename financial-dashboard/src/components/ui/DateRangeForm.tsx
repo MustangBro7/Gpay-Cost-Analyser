@@ -69,10 +69,13 @@ export function DateRangeForm({
   onDataFetched,
   actions,
   showInlinePresets = false,
+  requestedRange,
 }: {
   onDataFetched: (data: Transaction[], range: { from: Date; to: Date }) => void
   actions?: React.ReactNode
   showInlinePresets?: boolean
+  /** Lets the page jump to a specific range (e.g. a tag's date span). */
+  requestedRange?: { from: Date; to: Date } | null
 }){
   const currentMonth = getCurrentMonthRange()
   const [date, setDate] = React.useState<DateRange | undefined>({
@@ -87,6 +90,12 @@ export function DateRangeForm({
   const { isLoaded, isSignedIn } = useAppAuth()
   const fromTime = date?.from?.getTime()
   const toTime = date?.to?.getTime()
+
+  React.useEffect(() => {
+    if (requestedRange) {
+      setDate({ from: requestedRange.from, to: requestedRange.to })
+    }
+  }, [requestedRange])
 
   // Fetch data whenever date range changes (after both from and to are selected)
   React.useEffect(() => {

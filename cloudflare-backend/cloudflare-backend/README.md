@@ -19,6 +19,13 @@ Cloudflare-native email backend for the GPay Cost Analyser migration.
   - transaction head pointers
 - R2-backed canonical transaction blobs with optimistic D1 head updates
 - Frontend-compatible `token-status`, `daterange`, `add-transaction`, `reclassify`, and `normalize` APIs
+- Optional transaction tags, stored as a `Tags` array on each transaction in the R2 blob (the key is
+  omitted when a transaction has no tags, so untagged payloads are unchanged):
+  - `GET /tags` — every tag with count, total, and first/last date
+  - `POST /tags/apply` — `{ transactions: [{ Date, Amount, Receiver? }], add?: [], remove?: [] }`
+  - `POST /tags/rename` — `{ from, to }` (renaming onto an existing tag merges them)
+  - `POST /tags/delete` — `{ tag }` (removes the tag; transactions are kept)
+  - `POST /add-transaction` accepts an optional `Tags` array
 
 ## Wrangler Commands
 

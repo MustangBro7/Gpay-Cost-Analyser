@@ -7,4 +7,6 @@ export interface Transaction {
   PaidToMe?: string
   Payers?: Array<{ name: string; amount: string }>
   OriginalAmount?: string
+  /** Optional user tags; the API omits the field when a transaction has none. */
+  Tags?: string[]
 }

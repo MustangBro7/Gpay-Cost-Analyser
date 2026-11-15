@@ -31,7 +31,13 @@ function formatCurrency(value: number) {
   }).format(value)
 }
 
-export function TopReceivers({ data }: { data: Transaction[] }) {
+export function TopReceivers({
+  data,
+  description = "Where the most money went in this range.",
+}: {
+  data: Transaction[]
+  description?: string
+}) {
   const receivers = React.useMemo(() => {
     const totals = new Map<string, { amount: number; count: number }>()
     data.forEach((tx) => {
@@ -60,7 +66,7 @@ export function TopReceivers({ data }: { data: Transaction[] }) {
           </span>
           Top Receivers
         </CardTitle>
-        <CardDescription>Where the most money went in this range.</CardDescription>
+        <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {receivers.length === 0 ? (
