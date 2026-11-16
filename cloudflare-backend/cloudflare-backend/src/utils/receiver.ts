@@ -52,8 +52,12 @@ export function cleanReceiverName(receiver: string | null | undefined): string |
 
   // UPI payee with a name: "VPA ****1234@ybl (NAME)" or "****1234@ybl (NAME" (closing paren lost).
   const vpaWithName = value.match(/^(?:VPA\s+)?\S*@\S+\s*\(([^)]+)\)?\s*$/i)
+  // Older alerts: "VPA handle@bank NAME" with no parentheses.
+  const vpaThenName = value.match(/^VPA\s+\S*@\S+\s+([A-Za-z].*)$/i)
   if (vpaWithName) {
     value = vpaWithName[1]
+  } else if (vpaThenName) {
+    value = vpaThenName[1]
   }
 
   value = value

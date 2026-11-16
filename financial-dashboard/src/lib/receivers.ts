@@ -33,8 +33,12 @@ export function suggestReceiverName(receiver: string) {
   }
 
   const vpaWithName = value.match(/^(?:VPA\s+)?\S*@\S+\s*\(([^)]+)\)?\s*$/i)
+  // Older alerts: "VPA handle@bank NAME" with no parentheses.
+  const vpaThenName = value.match(/^VPA\s+\S*@\S+\s+([A-Za-z].*)$/i)
   if (vpaWithName) {
     value = vpaWithName[1]
+  } else if (vpaThenName) {
+    value = vpaThenName[1]
   }
 
   value = value.replace(/^VPA\s+/i, "").trim()
