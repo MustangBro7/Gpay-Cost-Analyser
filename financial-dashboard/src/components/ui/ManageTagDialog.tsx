@@ -23,7 +23,8 @@ interface ManageTagDialogProps {
   action: ManageTagAction | null
   onOpenChange: (open: boolean) => void
   allTags: TagSummary[]
-  onSuccess: () => void
+  /** `renamed` is set after a rename so the page can keep a focused tag focused. */
+  onSuccess: (renamed?: { from: string; to: string }) => void
 }
 
 export function ManageTagDialog({ action, onOpenChange, allTags, onSuccess }: ManageTagDialogProps) {
@@ -86,7 +87,7 @@ export function ManageTagDialog({ action, onOpenChange, allTags, onSuccess }: Ma
         }
       )
       onOpenChange(false)
-      onSuccess()
+      onSuccess(action.mode === "rename" ? { from: action.tag, to: nextName } : undefined)
     } catch (error) {
       console.error("Tag update failed:", error)
       toast.error(error instanceof Error ? error.message : "Failed to update tag.")

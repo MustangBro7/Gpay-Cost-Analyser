@@ -54,6 +54,11 @@ interface TransactionTableProps {
   /** Called when a tag chip on a row is clicked. */
   onTagClick?: (tag: string) => void
   groupBy?: GroupBy
+  /**
+   * Identifies what the table is showing (date range + filters). The table returns to page 1
+   * only when this changes, so edits that refetch the same view keep your place.
+   */
+  viewKey?: string
 }
 
 function SelectBox({
@@ -216,6 +221,7 @@ export function TransactionTable({
   knownTags = [],
   onTagClick,
   groupBy = "classification",
+  viewKey,
 }: TransactionTableProps) {
   const [currentPage, setCurrentPage] = React.useState(1)
   const [sortKey, setSortKey] = React.useState<SortKey>("Date")
@@ -292,7 +298,7 @@ export function TransactionTable({
 
   React.useEffect(() => {
     setCurrentPage(1)
-  }, [data, normalizedReceiverQuery, sortDirection, sortKey])
+  }, [viewKey, normalizedReceiverQuery, sortDirection, sortKey])
 
   React.useEffect(() => {
     if (currentPage > totalPages) {

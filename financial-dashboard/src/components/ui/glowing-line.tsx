@@ -15,6 +15,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart"
+import { buildGroupColors, NEUTRAL_CHART_COLOR, type GroupColorFn } from "@/lib/chartColors"
 import { formatGroupLabel, getGroupKeys, groupTotals } from "@/lib/tags"
 import { formatTransactionDateKey, getTransactionDateKey } from "@/lib/transactionDate"
 import { GroupBy } from "@/types/Tag"
@@ -27,33 +28,29 @@ const chartConfig = {
   },
 } satisfies ChartConfig
 
-const SERIES_COLORS = [
-  "var(--chart-1)",
-  "var(--chart-2)",
-  "var(--chart-3)",
-  "var(--chart-4)",
-  "var(--chart-5)",
-]
+/** Lines drawn before the rest fold into "Other tags". */
+const MAX_SERIES = 5
 
 type Series = { dataKey: string; label: string; color: string; groups: string[] }
 
 /** One line per tag (top four plus "Other tags"), so separate events stay distinguishable. */
-function buildTagSeries(data: Transaction[]): Series[] {
+function buildTagSeries(data: Transaction[], colorFor?: GroupColorFn): Series[] {
   const ranked = Array.from(groupTotals(data, "tag").entries())
     .sort((a, b) => b[1].amount - a[1].amount)
     .map(([key]) => key)
-  const limit = ranked.length > SERIES_COLORS.length ? SERIES_COLORS.length - 1 : ranked.length
+  const getColor = colorFor ?? buildGroupColors(ranked)
+  const limit = ranked.length > MAX_SERIES ? MAX_SERIES - 1 : ranked.length
   const series: Series[] = ranked.slice(0, limit).map((key, index) => ({
     dataKey: `s${index}`,
     label: formatGroupLabel(key),
-    color: SERIES_COLORS[index],
+    color: getColor(key),
     groups: [key],
   }))
   if (ranked.length > limit) {
     series.push({
       dataKey: `s${limit}`,
       label: "Other tags",
-      color: SERIES_COLORS[limit],
+      color: NEUTRAL_CHART_COLOR,
       groups: ranked.slice(limit),
     })
   }
@@ -63,18 +60,21 @@ function buildTagSeries(data: Transaction[]): Series[] {
 export function GlowingLineChart({
   data,
   groupBy = "classification",
+  colorFor,
 }: {
   data?: Transaction[]
   /** In tag view, draws one line per tag instead of a single total. */
   groupBy?: GroupBy
+  /** Stable per-tag colors shared with the other widgets. */
+  colorFor?: GroupColorFn
 }) {
   const series = React.useMemo<Series[] | null>(() => {
     if (groupBy !== "tag" || !data || data.length === 0) {
       return null
     }
-    const tagSeries = buildTagSeries(data)
+    const tagSeries = buildTagSeries(data, colorFor)
     return tagSeries.length > 1 ? tagSeries : null
-  }, [data, groupBy])
+  }, [colorFor, data, groupBy])
 
   const daily = React.useMemo(() => {
     if (!data || data.length === 0) return []

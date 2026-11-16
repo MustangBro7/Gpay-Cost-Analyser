@@ -42,6 +42,7 @@ import {
   normalizeTagSummaries,
 } from "@/lib/tags"
 import { cn } from "@/lib/utils"
+import { buildGroupColors } from "@/lib/chartColors"
 import {
   Card,
   CardContent,
@@ -152,6 +153,30 @@ function GroupByToggle({
   )
 }
 
+/**
+ * Carries a filter selection across a data reload (an edit, a refetch, or a new date range)
+ * instead of resetting it. A selection that was "everything" stays "everything" (and picks up
+ * newly appeared groups); a narrowed selection keeps whichever of its groups still exist, and
+ * only falls back to everything once none of them do.
+ */
+function reconcileSelection(
+  current: Set<string>,
+  previousDefaults: string[] | null,
+  nextOptions: string[],
+  nextDefaults: string[]
+): Set<string> {
+  const wasDefault =
+    previousDefaults === null ||
+    current.size === 0 ||
+    (current.size === previousDefaults.length && previousDefaults.every((key) => current.has(key)))
+  const kept = wasDefault ? nextDefaults : nextOptions.filter((key) => current.has(key))
+  const resolved = kept.length > 0 ? kept : nextDefaults
+  if (resolved.length === current.size && resolved.every((key) => current.has(key))) {
+    return current
+  }
+  return new Set(resolved)
+}
+
 function percentChange(current: number, previous: number): number | null {
   if (previous <= 0) {
     return null
@@ -170,6 +195,10 @@ export default function DashboardPage() {
   const [requestedRange, setRequestedRange] = React.useState<{ from: Date; to: Date } | null>(null)
   const [manageTagAction, setManageTagAction] = React.useState<ManageTagAction | null>(null)
   const pendingTagFocusRef = React.useRef<string | null>(null)
+  const previousTagDefaultsRef = React.useRef<string[] | null>(null)
+  const previousClassificationsRef = React.useRef<string[] | null>(null)
+  const [inlineFilterChip, setInlineFilterChip] = React.useState<HTMLDivElement | null>(null)
+  const [isInlineFilterChipVisible, setIsInlineFilterChipVisible] = React.useState(true)
   const [isInitialLoad, setIsInitialLoad] = React.useState(true)
   const [isAddDialogOpen, setIsAddDialogOpen] = React.useState(false)
   const [isClassificationSettingsOpen, setIsClassificationSettingsOpen] = React.useState(false)
@@ -369,16 +398,20 @@ export default function DashboardPage() {
     [data, tagsInRange]
   )
 
-  // Fresh data resets the tag filter, like the classification filter does.
+  // Fresh data keeps the tag filter (see reconcileSelection) unless a tag focus was requested.
   React.useEffect(() => {
+    const previousDefaults = previousTagDefaultsRef.current
+    previousTagDefaultsRef.current = tagsInRange
     const pending = pendingTagFocusRef.current
     pendingTagFocusRef.current = null
     if (pending && tagsInRange.includes(pending)) {
       setSelectedTags(new Set([pending]))
       return
     }
-    setSelectedTags(new Set(tagsInRange))
-  }, [tagsInRange])
+    setSelectedTags((current) =>
+      reconcileSelection(current, previousDefaults, tagFilterOptions, tagsInRange)
+    )
+  }, [tagFilterOptions, tagsInRange])
 
   const isDefaultTagSelection = React.useMemo(
     () =>
@@ -411,6 +444,33 @@ export default function DashboardPage() {
     data.forEach((tx) => unique.add(tx.Classification))
     return Array.from(unique).sort()
   }, [data])
+
+  // Fresh data keeps the classification filter, so reclassifying or editing a transaction
+  // (or changing dates) doesn't throw away a focused view.
+  React.useEffect(() => {
+    const previous = previousClassificationsRef.current
+    previousClassificationsRef.current = availableClassifications
+    setSelectedClassifications((current) =>
+      reconcileSelection(current, previous, availableClassifications, availableClassifications)
+    )
+  }, [availableClassifications])
+
+  // Colors follow the group, not its rank: classifications in the order of the user's
+  // categories, tags alphabetically. Filtering never repaints what's still on screen.
+  const classificationColorFor = React.useMemo(() => {
+    const known = new Set(classificationSettings.categories.map((name) => name.toLowerCase()))
+    const extras = availableClassifications.filter((name) => !known.has(name.toLowerCase()))
+    return buildGroupColors([...classificationSettings.categories, ...extras])
+  }, [availableClassifications, classificationSettings.categories])
+
+  const tagColorFor = React.useMemo(() => {
+    const names = [...allTags.map((tag) => tag.name), ...tagsInRange]
+    return buildGroupColors(
+      names.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }))
+    )
+  }, [allTags, tagsInRange])
+
+  const groupColorFor = isTagView ? tagColorFor : classificationColorFor
 
   const isAllClassificationsSelected = React.useMemo(() => {
     return (
@@ -558,6 +618,51 @@ export default function DashboardPage() {
 
   const handleGroupFocus = isTagView ? handleTagFocus : handleClassificationFocus
   const handleResetGroupFocus = isTagView ? handleResetTagFocus : handleResetClassificationFocus
+
+  const handleManageTagSuccess = React.useCallback(
+    (renamed?: { from: string; to: string }) => {
+      if (renamed) {
+        // Keep a renamed tag in the filter under its new name.
+        setSelectedTags((current) => {
+          if (!current.has(renamed.from)) return current
+          const next = new Set(current)
+          next.delete(renamed.from)
+          next.add(renamed.to)
+          return next
+        })
+      }
+      refetch()
+    },
+    [refetch]
+  )
+
+  // On phones the filter chip scrolls away with the toolbar; mirror it in a floating chip
+  // so it's always clear the dashboard is filtered and one tap clears it.
+  React.useEffect(() => {
+    if (!inlineFilterChip) {
+      setIsInlineFilterChipVisible(true)
+      return
+    }
+    // The top margin matches the sticky header, which would otherwise hide the chip.
+    const observer = new IntersectionObserver(
+      ([entry]) => setIsInlineFilterChipVisible(entry.isIntersecting),
+      { rootMargin: "-64px 0px 0px 0px" }
+    )
+    observer.observe(inlineFilterChip)
+    return () => observer.disconnect()
+  }, [inlineFilterChip])
+
+  const filterSummary = singleActiveGroup
+    ? `Focused: ${formatGroupLabel(singleActiveGroup)}`
+    : isTagView
+      ? `Filtered: ${selectedTags.size} tag${selectedTags.size === 1 ? "" : "s"}`
+      : `Filtered: ${selectedClassifications.size} classifications`
+  const showFloatingFilterChip = !isAllGroupsSelected && data.length > 0 && !isInlineFilterChipVisible
+
+  const tableViewKey = React.useMemo(() => {
+    const selection = isTagView ? selectedTags : selectedClassifications
+    return [rangeLabel, groupBy, ...Array.from(selection).sort()].join("\u0000")
+  }, [groupBy, isTagView, rangeLabel, selectedClassifications, selectedTags])
 
   // Clicking a tag on a transaction row opens the tag view focused on it.
   const handleTagChipClick = React.useCallback((tag: string) => {
@@ -737,17 +842,15 @@ export default function DashboardPage() {
                           data={data}
                           selectedClassifications={selectedClassifications}
                           onSelectionChange={setSelectedClassifications}
+                          autoReset={false}
                         />
                       )}
                       {!isAllGroupsSelected ? (
-                        <div className="flex min-w-0 items-center gap-2 rounded-full border border-border/70 bg-card/80 px-3 py-2 text-sm text-muted-foreground shadow-sm">
-                          <span className="truncate">
-                            {singleActiveGroup
-                              ? `Focused: ${formatGroupLabel(singleActiveGroup)}`
-                              : isTagView
-                                ? `Filtered: ${selectedTags.size} tag${selectedTags.size === 1 ? "" : "s"}`
-                                : `Filtered: ${selectedClassifications.size} classifications`}
-                          </span>
+                        <div
+                          ref={setInlineFilterChip}
+                          className="flex min-w-0 items-center gap-2 rounded-full border border-border/70 bg-card/80 px-3 py-2 text-sm text-muted-foreground shadow-sm"
+                        >
+                          <span className="truncate">{filterSummary}</span>
                           <Button
                             type="button"
                             variant="ghost"
@@ -851,7 +954,7 @@ export default function DashboardPage() {
               if (!open) setManageTagAction(null)
             }}
             allTags={allTags}
-            onSuccess={refetch}
+            onSuccess={handleManageTagSuccess}
           />
 
           <ClassificationSettingsDialog
@@ -950,18 +1053,22 @@ export default function DashboardPage() {
                       onShowFullSpan={handleShowTagSpan}
                       onRename={(tag) => setManageTagAction({ mode: "rename", tag })}
                       onDelete={(tag) => setManageTagAction({ mode: "delete", tag })}
+                      classificationColorFor={classificationColorFor}
                     />
                   </div>
                 ) : null}
                 <div className="min-w-0 xl:col-span-8">
-                  <GlowingLineChart data={chartData} groupBy={groupBy} />
+                  <GlowingLineChart data={chartData} groupBy={groupBy} colorFor={tagColorFor} />
                 </div>
                 <div className="min-w-0 xl:col-span-4">
                   <PieChartComponent
                     data={chartData}
                     activeClassification={singleActiveGroup}
                     onClassificationSelect={handleGroupFocus}
+                    onResetFocus={handleResetGroupFocus}
+                    isFiltered={!isAllGroupsSelected}
                     groupBy={groupBy}
+                    colorFor={groupColorFor}
                   />
                 </div>
                 <div className="min-w-0 xl:col-span-7">
@@ -969,6 +1076,8 @@ export default function DashboardPage() {
                     data={chartData}
                     activeClassification={singleActiveGroup}
                     onClassificationSelect={handleGroupFocus}
+                    onResetFocus={handleResetGroupFocus}
+                    isFiltered={!isAllGroupsSelected}
                     groupBy={groupBy}
                   />
                 </div>
@@ -995,14 +1104,33 @@ export default function DashboardPage() {
                 knownTags={knownTagNames}
                 onTagClick={handleTagChipClick}
                 groupBy={groupBy}
+                viewKey={tableViewKey}
               />
             </>
           )}
 
-          <div className="pb-2">
+          <div className={cn("pb-2", showFloatingFilterChip && "pb-16 sm:pb-2")}>
             <Toaster />
           </div>
         </main>
+
+        {showFloatingFilterChip ? (
+          <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:hidden">
+            <div className="pointer-events-auto flex min-w-0 max-w-full items-center gap-1 rounded-full border border-border/70 bg-background/85 py-1 pl-4 pr-1 text-sm shadow-lg backdrop-blur-xl">
+              <span className="min-w-0 truncate text-muted-foreground">{filterSummary}</span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-9 shrink-0 rounded-full px-3"
+                onClick={handleResetGroupFocus}
+              >
+                <X className="size-3.5" />
+                Show all
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </AppSignedIn>
     </>
   )

@@ -26,11 +26,19 @@ or dialog must follow these rules. Do not introduce new visual styles.
 ## Color
 - Use semantic tokens only: `bg-background`, `bg-card`, `text-foreground`,
   `text-muted-foreground`, `border-border`, `bg-primary`, `text-primary`, `bg-muted`,
-  `text-destructive`, `var(--chart-1..5)`. Never hardcode hex/oklch values in components.
+  `text-destructive`, `var(--chart-1..16)`. Never hardcode hex/oklch values in components.
 - Primary is teal (oklch hue ~186). Use it for primary actions, icon chips, and emphasis;
   surfaces and text stay in the mist-gray ramp.
-- Charts use the 5-color data palette (`--chart-1..5`: teal, blue, amber, violet, rose).
-  `--chart-1` (teal) is the anchor for single-series charts; multi-series cycle through 1–5.
+- Charts use the 16-color data palette (`--chart-1..16`; 1–5 are the brand teal, blue, amber,
+  violet, rose). `--chart-1` (teal) is the anchor for single-series charts.
+- Categorical colors are never cycled: get them from `buildGroupColors`/`chartColor` in
+  `src/lib/chartColors.ts`, which give every group a unique color (past 16 it blends tokens) and
+  key the color to the group, not its rank. The dashboard builds one map per grouping
+  (classifications in the user's category order, tags alphabetically) and passes it to widgets as
+  `colorFor`, so a group is the same color everywhere and filtering never repaints it.
+  "Untagged" / "Other" / "N more" buckets use `NEUTRAL_CHART_COLOR`.
+- Breakdown charts (pie, ranking, legends) are always sorted largest first; pie slices run
+  clockwise from 12 o'clock (`startAngle={90} endAngle={-270}`).
 - Status/category tints are the one exception: translucent Tailwind tints in the pattern
   `border-{color}-500/20 bg-{color}-500/12 text-{color}-700 dark:text-{color}-300`
   (see `TransactionTable.tsx` and `statusBadgeClass` in `admin/evals/page.tsx`).
@@ -91,6 +99,12 @@ or dialog must follow these rules. Do not introduce new visual styles.
 - Empty states: dashed-border card, centered icon chip, short title + description, one action.
 - Charts use `ChartContainer` from `src/components/ui/chart.tsx` with `var(--chart-*)` colors only.
 - Loading states: lucide `Loader2`/`LoaderCircle` with `animate-spin`; refresh icons spin while busy.
+- Dashboard filters (date range, classification/tag focus) persist until the user clears them:
+  data reloads go through `reconcileSelection` in `dashboard/page.tsx`, never an auto-reset.
+  Widgets keep their own page/sort across refetches (the table resets only when `viewKey` changes).
+- Touch: charts that drill down accept `onResetFocus` + `isFiltered`; double-tap (touch only, via
+  `useDoubleTap` in `src/hooks/useDoubleTap.ts`) returns to every group. Wrap the chart in
+  `touch-manipulation` so the browser doesn't zoom on the gesture.
 - Tags: optional user labels (`Transaction.Tags`, omitted by the API when empty) that group
   spending across classifications. Show them with `TagChip`/`TagChipList` (primary tint + lucide
   `Tag` icon, distinct from classification badges); edit with `TagInput` +

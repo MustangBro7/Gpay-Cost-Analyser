@@ -165,12 +165,15 @@ interface ClassificationFilterProps {
   data: Transaction[]
   selectedClassifications: Set<string>
   onSelectionChange: (selected: Set<string>) => void
+  /** When false, the parent owns resetting the selection. */
+  autoReset?: boolean
 }
 
 export function ClassificationFilter({
   data,
   selectedClassifications,
   onSelectionChange,
+  autoReset,
 }: ClassificationFilterProps) {
   // Extract unique classifications from data
   const availableClassifications = React.useMemo(() => {
@@ -187,6 +190,7 @@ export function ClassificationFilter({
       title="Classifications"
       allLabel="All classifications"
       emptyLabel="No classifications available"
+      autoReset={autoReset}
     />
   )
 }

@@ -19,18 +19,14 @@ import {
   parseAmount,
   sameTag,
 } from "@/lib/tags"
+import { buildGroupColors, NEUTRAL_CHART_COLOR, type GroupColorFn } from "@/lib/chartColors"
 import { formatTransactionDateKey, getTransactionDateKey } from "@/lib/transactionDate"
 import { cn } from "@/lib/utils"
 import { TagSummary } from "@/types/Tag"
 import { Transaction } from "@/types/Transaction"
 
-const MIX_COLORS = [
-  "var(--chart-1)",
-  "var(--chart-2)",
-  "var(--chart-3)",
-  "var(--chart-4)",
-  "var(--chart-5)",
-]
+/** Classifications drawn in a tag's mix bar before the rest fold into "N more". */
+const MIX_SLOTS = 5
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("en-IN", {
@@ -58,7 +54,15 @@ type TagGroup = {
   mix: Array<{ classification: string; amount: number; color: string }>
 }
 
-function buildGroups(data: Transaction[], visibleKeys: Set<string>): TagGroup[] {
+function buildGroups(
+  data: Transaction[],
+  visibleKeys: Set<string>,
+  classificationColorFor?: GroupColorFn
+): TagGroup[] {
+  const getColor =
+    classificationColorFor ??
+    buildGroupColors(Array.from(new Set(data.map((tx) => tx.Classification))).sort())
+
   const groups = new Map<string, { amount: number; count: number; firstDate: string; lastDate: string; mix: Map<string, number> }>()
 
   data.forEach((tx) => {
@@ -86,18 +90,18 @@ function buildGroups(data: Transaction[], visibleKeys: Set<string>): TagGroup[] 
   return Array.from(groups.entries())
     .map(([key, group]) => {
       const ranked = Array.from(group.mix.entries()).sort((a, b) => b[1] - a[1])
-      const top = ranked.slice(0, MIX_COLORS.length - 1)
-      const rest = ranked.slice(MIX_COLORS.length - 1)
-      const mix = top.map(([classification, amount], index) => ({
+      const top = ranked.slice(0, MIX_SLOTS - 1)
+      const rest = ranked.slice(MIX_SLOTS - 1)
+      const mix = top.map(([classification, amount]) => ({
         classification,
         amount,
-        color: MIX_COLORS[index],
+        color: getColor(classification),
       }))
       if (rest.length > 0) {
         mix.push({
           classification: rest.length === 1 ? rest[0][0] : `${rest.length} more`,
           amount: rest.reduce((sum, [, amount]) => sum + amount, 0),
-          color: MIX_COLORS[MIX_COLORS.length - 1],
+          color: rest.length === 1 ? getColor(rest[0][0]) : NEUTRAL_CHART_COLOR,
         })
       }
       return {
@@ -132,6 +136,8 @@ interface TagBreakdownProps {
   onShowFullSpan: (summary: TagSummary) => void
   onRename: (tag: string) => void
   onDelete: (tag: string) => void
+  /** Stable classification colors shared with the other widgets. */
+  classificationColorFor?: GroupColorFn
 }
 
 export function TagBreakdown({
@@ -145,8 +151,12 @@ export function TagBreakdown({
   onShowFullSpan,
   onRename,
   onDelete,
+  classificationColorFor,
 }: TagBreakdownProps) {
-  const groups = React.useMemo(() => buildGroups(data, visibleKeys), [data, visibleKeys])
+  const groups = React.useMemo(
+    () => buildGroups(data, visibleKeys, classificationColorFor),
+    [classificationColorFor, data, visibleKeys]
+  )
   const [menuFor, setMenuFor] = React.useState<string | null>(null)
   const tagCount = groups.filter((group) => group.key !== UNTAGGED_KEY).length
 

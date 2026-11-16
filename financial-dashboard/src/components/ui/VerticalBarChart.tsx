@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/chart"
 import { formatTransactionDateKey, getTransactionDateKey } from "@/lib/transactionDate"
 import { formatGroupLabel, getGroupKeys } from "@/lib/tags"
+import { useDoubleTap, useIsTouchDevice } from "@/hooks/useDoubleTap"
 import { GroupBy } from "@/types/Tag"
 import { Transaction } from "@/types/Transaction"
 
@@ -37,11 +38,17 @@ export function VerticalBarChart({
   data = [],
   activeClassification,
   onClassificationSelect,
+  onResetFocus,
+  isFiltered = false,
   groupBy = "classification",
 }: {
   data: Transaction[]
   activeClassification?: string | null
   onClassificationSelect: (classification: string) => void
+  /** Returns the dashboard to every group; double-tapping the chart on a touch screen calls it. */
+  onResetFocus?: () => void
+  /** True when the dashboard is narrowed to some groups (one or several). */
+  isFiltered?: boolean
   /** Rank by classification (default) or by tag. */
   groupBy?: GroupBy
 }) {
@@ -65,11 +72,24 @@ export function VerticalBarChart({
   const pageSize = 5
   const [currentPage, setCurrentPage] = React.useState(0)
 
+  // Switching grouping starts over; edits to the data keep the page (clamped below).
   React.useEffect(() => {
     setCurrentPage(0)
-  }, [data])
+  }, [groupBy])
 
   const totalPages = Math.max(1, Math.ceil(grouped.length / pageSize))
+
+  React.useEffect(() => {
+    if (currentPage > totalPages - 1) {
+      setCurrentPage(totalPages - 1)
+    }
+  }, [currentPage, totalPages])
+
+  const handleReset = React.useCallback(() => {
+    onResetFocus?.()
+  }, [onResetFocus])
+  const doubleTap = useDoubleTap(handleReset, Boolean(onResetFocus) && isFiltered)
+  const isTouch = useIsTouchDevice()
   const startIdx = currentPage * pageSize
   const paginated = grouped.slice(startIdx, startIdx + pageSize)
   const hasActiveClassification = Boolean(activeClassification)
@@ -104,6 +124,10 @@ export function VerticalBarChart({
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col">
+        <div
+          {...doubleTap}
+          className="touch-manipulation select-none [-webkit-tap-highlight-color:transparent]"
+        >
         <ChartContainer config={chartConfig} className="aspect-auto h-64 w-full">
           <BarChart
             accessibilityLayer
@@ -141,6 +165,8 @@ export function VerticalBarChart({
               onClick={(_, index) => {
                 const item = paginated[index]
                 if (!item) return
+                // On touch, the focused bar is left to the double tap instead of toggling.
+                if (isTouch && item.key === activeClassification) return
                 onClassificationSelect(item.key)
               }}
             >
@@ -171,6 +197,7 @@ export function VerticalBarChart({
             </Bar>
           </BarChart>
         </ChartContainer>
+        </div>
 
         {totalPages > 1 ? (
           <div className="mt-auto flex items-center justify-between pt-4">
