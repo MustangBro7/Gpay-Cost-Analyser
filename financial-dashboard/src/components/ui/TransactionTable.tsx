@@ -14,8 +14,10 @@ import { Input } from "@/components/ui/input"
 import { DeleteTransactionDialog } from "@/components/ui/DeleteTransactionDialog"
 import { NormalizeTransactionDialog } from "@/components/ui/NormalizeTransactionDialog"
 import { ReclassifyTransactionDialog } from "@/components/ui/ReclassifyTransactionDialog"
+import { RenameReceiverDialog } from "@/components/ui/RenameReceiverDialog"
 import { TagChipList } from "@/components/ui/TagChip"
 import { TagTransactionsDialog } from "@/components/ui/TagTransactionsDialog"
+import { getReceiverKey } from "@/lib/receivers"
 import { getTransactionKey } from "@/lib/tags"
 import { formatTransactionDate, getTransactionDateSortValue } from "@/lib/transactionDate"
 import { cn } from "@/lib/utils"
@@ -34,6 +36,7 @@ import {
   SlidersHorizontal,
   Split,
   Tag,
+  TextCursorInput,
   Trash2,
   X,
 } from "lucide-react"
@@ -221,6 +224,7 @@ export function TransactionTable({
   const [reclassifyTarget, setReclassifyTarget] = React.useState<Transaction | null>(null)
   const [normalizeTarget, setNormalizeTarget] = React.useState<Transaction | null>(null)
   const [deleteTarget, setDeleteTarget] = React.useState<Transaction | null>(null)
+  const [renameTarget, setRenameTarget] = React.useState<Transaction | null>(null)
   const [tagTargets, setTagTargets] = React.useState<Transaction[] | null>(null)
   const [selectedKeys, setSelectedKeys] = React.useState<Set<string>>(new Set())
   const deferredReceiverQuery = React.useDeferredValue(receiverQuery)
@@ -237,6 +241,15 @@ export function TransactionTable({
         Boolean(tx.Tags?.some((tag) => tag.toLowerCase().includes(normalizedReceiverQuery)))
     )
   }, [data, normalizedReceiverQuery])
+
+  const receiverCounts = React.useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const tx of data) {
+      const key = getReceiverKey(tx.Receiver ?? "")
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    }
+    return counts
+  }, [data])
 
   const sortedRows = React.useMemo(() => {
     const sorted = [...filteredData].sort((a, b) => {
@@ -607,9 +620,15 @@ export function TransactionTable({
                                 <div className="text-[11px] text-muted-foreground">
                                   {formatTransactionDate(tx.Date)}
                                 </div>
-                                <div className="truncate pr-2 text-sm font-medium">
-                                  {tx.Receiver}
-                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setRenameTarget(tx)}
+                                  aria-label={`Rename receiver ${tx.Receiver}`}
+                                  className="group/rename flex w-full min-w-0 items-center gap-1.5 pr-2 text-left text-sm font-medium"
+                                >
+                                  <span className="min-w-0 truncate">{tx.Receiver}</span>
+                                  <TextCursorInput className="size-3.5 shrink-0 text-muted-foreground group-hover/rename:text-primary" />
+                                </button>
                               </div>
                               <div className="shrink-0 text-sm font-medium">
                                 {formatAmount(tx.Amount)}
@@ -683,8 +702,23 @@ export function TransactionTable({
                         <td className="hidden px-4 py-3 whitespace-nowrap text-muted-foreground sm:table-cell">
                           {formatTransactionDate(tx.Date)}
                         </td>
-                        <td className="hidden px-4 py-3 font-medium sm:table-cell">
-                          {tx.Receiver}
+                        <td className="hidden max-w-sm px-4 py-3 font-medium sm:table-cell">
+                          <div className="group/rename flex min-w-0 items-start gap-1.5">
+                            <span className="line-clamp-2 min-w-0 break-words" title={tx.Receiver}>
+                              {tx.Receiver}
+                            </span>
+                            <Button
+                              type="button"
+                              size="icon-sm"
+                              variant="ghost"
+                              aria-label={`Rename receiver ${tx.Receiver}`}
+                              title="Rename receiver"
+                              className="-my-1 shrink-0 rounded-full text-muted-foreground opacity-60 transition group-hover/rename:opacity-100 hover:text-primary focus-visible:opacity-100"
+                              onClick={() => setRenameTarget(tx)}
+                            >
+                              <TextCursorInput className="size-3.5" />
+                            </Button>
+                          </div>
                           <TagChipList tags={tx.Tags} onTagClick={onTagClick} className="mt-1.5" />
                         </td>
                         <td className="hidden px-4 py-3 sm:table-cell">
@@ -820,6 +854,20 @@ export function TransactionTable({
           }}
           transactions={tagTargets}
           knownTags={knownTags}
+          onSuccess={refetch}
+        />
+      ) : null}
+
+      {renameTarget ? (
+        <RenameReceiverDialog
+          open={Boolean(renameTarget)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setRenameTarget(null)
+            }
+          }}
+          transaction={renameTarget}
+          matchingCount={receiverCounts.get(getReceiverKey(renameTarget.Receiver ?? "")) ?? 1}
           onSuccess={refetch}
         />
       ) : null}

@@ -2,8 +2,9 @@ import { DEFAULT_CLASSIFICATION_RULES_TEXT } from './classification-settings'
 import { AiAgentEvalSource, ClassificationSettings, Env, Transaction } from '../types'
 import { HttpError } from '../utils/http'
 import { AiAgentEvalRepository } from '../repositories/ai-agent-eval-repository'
+import { ReceiverAliasStore } from '../repositories/receiver-alias-repository'
 import { ReceiverClassificationStore } from '../repositories/receiver-classification-repository'
-import { normalizeReceiverLabel } from '../utils/receiver'
+import { cleanReceiverName, isNoisyReceiver, MAX_RECEIVER_LENGTH, normalizeReceiverLabel } from '../utils/receiver'
 
 interface PartialTransaction {
   Amount?: string
@@ -57,24 +58,30 @@ function cleanReceiverCandidate(candidate: string | undefined): string | null {
     .replace(/\s+/g, ' ')
     .trim()
 
-  return cleaned || null
+  // Anything this long is a sentence the pattern swallowed, not a payee name.
+  if (!cleaned || cleaned.length > MAX_RECEIVER_LENGTH || isNoisyReceiver(cleaned)) {
+    return null
+  }
+
+  return cleaned
 }
 
-function parseReceiver(cleanBody: string): string | undefined {
-  const receiverPatterns = [
-    /(?:to|towards)\s+VPA\s+[\w.-]+@[\w.-]+\s*\(([^)]+)\)/i,
-    /(?:to|towards)\s+VPA\s+[\w.-]+@[\w.-]+\s+([A-Za-z][A-Za-z0-9\s&\-.]+?)\s+on\b/i,
-    /\bto\s+(.+?)\s+using\b/i,
-    /\bto\s+(.+?)\s+via\b/i,
-    /\bpayment to\s+(.+?)(?:\s+on\b|\s+via\b|\s+using\b|[,.]|$)/i,
-    /\btransferred to\s+(.+?)(?:\s+on\b|\s+via\b|\s+using\b|[,.]|$)/i,
-    /\btowards\s+(.+?)\s+on\b/i,
-    /(?:to|towards)\s+VPA\s+([\w.-]+@[\w.-]+)/i,
-  ]
+// Ordered from most to least specific. HDFC masks UPI IDs ("VPA ****1234@ybl (NAME)"), so the VPA
+// token is matched as any non-space run rather than a strict UPI handle.
+const RECEIVER_PATTERNS = [
+  /\b(?:to|towards)\s+VPA\s+\S+\s*\(([^)]{1,80})\)/i,
+  /\b(?:to|towards)\s+VPA\s+\S+@\S+\s+([A-Za-z][A-Za-z0-9\s&\-.]{0,79}?)\s+on\b/i,
+  /\btowards\s+(.{1,80}?)\s+on\s+\d/i,
+  /\bcard ending\s+\d{4}\s+at\s+(.{1,80}?)\s+on\s+\d/i,
+  /\bpayment to\s+(.{1,80}?)(?:\s+on\b|\s+via\b|\s+using\b|[,.]|$)/i,
+  /\btransferred to\s+(.{1,80}?)(?:\s+on\b|\s+via\b|\s+using\b|[,.]|$)/i,
+  /\bto\s+(.{1,80}?)\s+(?:using|via)\b/i,
+  /\b(?:to|towards)\s+VPA\s+([\w.-]+@[\w.-]+)/i,
+]
 
-  for (const pattern of receiverPatterns) {
-    const match = cleanBody.match(pattern)
-    const cleaned = cleanReceiverCandidate(match?.[1])
+function parseReceiver(cleanBody: string): string | undefined {
+  for (const pattern of RECEIVER_PATTERNS) {
+    const cleaned = cleanReceiverCandidate(cleanBody.match(pattern)?.[1])
     if (cleaned) {
       return cleaned
     }
@@ -110,7 +117,7 @@ function parseHdfcDebitEmail(body: string, emailTimestamp?: string | null): Part
   const datePatterns = [
     /on\s+(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})/i,
     /(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})\s*(?:at)?\s*(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[APap][Mm])?)?/i,
-    /(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{2,4})\s*(?:at)?\s*(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[APap][Mm])?)?/i,
+    /(\d{1,2}\s+[A-Za-z]{3,9},?\s+\d{2,4})\s*(?:at)?\s*(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[APap][Mm])?)?/i,
   ]
 
   outer: for (const pattern of datePatterns) {
@@ -152,7 +159,7 @@ function parseHdfcDebitEmail(body: string, emailTimestamp?: string | null): Part
 }
 
 function parseDate(dateStr: string, format: string): string | null {
-  const normalized = dateStr.replace(/\//g, '-').replace(/\s+/g, ' ').trim()
+  const normalized = dateStr.replace(/\//g, '-').replace(/,/g, ' ').replace(/\s+/g, ' ').trim()
   const parts = normalized.split(/[- ]/)
   if (parts.length !== 3) {
     return null
@@ -250,141 +257,194 @@ function classifyHeuristically(receiver: string | undefined): string {
   return 'Other'
 }
 
+const SYSTEM_PROMPT = 'You extract structured data from Indian bank debit alert emails. Respond with one JSON object and nothing else.'
+
 function buildClassificationPrompt(
   body: string,
   timestamp: string | null,
   settings: ClassificationSettings
 ): string {
   const rulesText = settings.usesDefault ? DEFAULT_CLASSIFICATION_RULES_TEXT : settings.rulesText
-  return `You are a financial assistant. Extract transaction details from this HDFC Bank debit alert email and classify it.
-
-===Email Body
+  return `===Email Body
 ${sanitizeBody(body)}
 
 ===Email Sent Timestamp
 ${timestamp ?? 'Unavailable'}
 
 ===Extraction Instructions
-1. Extract Amount as a number string without commas or currency symbols.
-2. Extract Receiver or Merchant name.
-3. Extract Date and Time in YYYY-MM-DD HH:MM:SS format. Use the email timestamp time when the body only includes a date.
-4. Classify the transaction.
+1. Amount: the debited amount as a number string, without commas or currency symbols.
+2. Receiver: the short name of the merchant or person that was paid, exactly as the email names them.
+   - UPI alerts look like "towards VPA xxxx@bank (NAME) on ...": use NAME only.
+   - Card alerts look like "towards MERCHANT on <date>": use MERCHANT only.
+   - Never include VPA or UPI IDs, masked digits such as ****, card or account numbers, reference numbers, or sentences from the email.
+   - If the email names no receiver, use "Personal Contact".
+3. Date: the transaction date and time as YYYY-MM-DD HH:MM:SS. Use the email timestamp's time when the body only gives a date.
+4. Classification: one category, following the guidelines below.
 
 ===Classification Guidelines
 ${rulesText}
 
-Respond with strict JSON only:
-{
-  "Amount": "number string",
-  "Classification": "category",
-  "Receiver": "merchant or receiver",
-  "Date": "YYYY-MM-DD HH:MM:SS"
-}`
+===Output
+{"Amount": "number string", "Receiver": "merchant or person", "Date": "YYYY-MM-DD HH:MM:SS", "Classification": "category"}`
 }
 
-async function classifyWithGemini(
-  env: Env,
-  body: string,
-  timestamp: string | null,
-  settings: ClassificationSettings
-): Promise<ClassificationAttemptResult> {
-  const prompt = buildClassificationPrompt(body, timestamp, settings)
-  const model = env.GOOGLE_GEMINI_MODEL || 'gemini-3.5-flash'
+const DEFAULT_PRIMARY_MODEL = '@cf/zai-org/glm-5.3'
+const DEFAULT_FALLBACK_MODEL = '@cf/google/gemma-4-26b-a4b-it'
+const PRIMARY_TIMEOUT_MS = 15_000
+const FALLBACK_TIMEOUT_MS = 12_000
 
-  if (!env.GEMINI_API_KEY) {
-    return {
-      prompt,
-      model,
-      aiOutput: null,
-      parsedOutput: null,
-      errorMessage: 'Gemini API key is not configured.',
-      latencyMs: null,
-      status: 'skipped',
-    }
+/** Model-specific knobs: GLM 5.x always reasons (low keeps it quick); smaller models skip thinking. */
+function buildModelInput(model: string, prompt: string): Record<string, unknown> {
+  const input: Record<string, unknown> = {
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: prompt },
+    ],
+    temperature: 0,
+    max_completion_tokens: 2048,
+    response_format: { type: 'json_object' },
   }
 
-  try {
-    const startedAt = Date.now()
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: prompt }],
-          },
-        ],
-      }),
-    })
-    const latencyMs = Date.now() - startedAt
+  if (/glm-5/.test(model)) {
+    input.reasoning_effort = 'low'
+  } else if (/deepseek|inkling/.test(model)) {
+    input.reasoning_effort = 'none'
+  } else {
+    input.chat_template_kwargs = { enable_thinking: false }
+  }
 
-    if (!response.ok) {
-      return {
-        prompt,
-        model,
-        aiOutput: await response.text().catch(() => null),
-        parsedOutput: null,
-        errorMessage: `Gemini classification failed with status ${response.status}.`,
-        latencyMs,
-        status: 'error',
-      }
-    }
+  return input
+}
 
-    const payload = await response.json<{
-      candidates?: Array<{
-        content?: {
-          parts?: Array<{ text?: string }>
-        }
-      }>
-    }>()
-    const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('').trim() ?? null
-    if (!text) {
-      return {
-        prompt,
-        model,
-        aiOutput: null,
-        parsedOutput: null,
-        errorMessage: 'Gemini returned an empty response.',
-        latencyMs,
-        status: 'error',
-      }
-    }
+function extractModelText(result: unknown): string | null {
+  const payload = result as {
+    response?: unknown
+    choices?: Array<{ message?: { content?: unknown } }>
+  } | null
+  const content = payload?.choices?.[0]?.message?.content ?? payload?.response
+  if (typeof content === 'string') {
+    return content.trim() || null
+  }
+  return content && typeof content === 'object' ? JSON.stringify(content) : null
+}
 
-    const clean = text.replace(/^```json\s*/i, '').replace(/```$/i, '').trim()
+function parseModelJson(text: string): PartialTransaction | null {
+  const unfenced = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '')
+  const candidates = [unfenced]
+  const start = unfenced.indexOf('{')
+  const end = unfenced.lastIndexOf('}')
+  if (start !== -1 && end > start) {
+    candidates.push(unfenced.slice(start, end + 1))
+  }
+
+  for (const candidate of candidates) {
     try {
+      const parsed = JSON.parse(candidate) as unknown
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        continue
+      }
+      const record = parsed as Record<string, unknown>
+      const asString = (value: unknown) =>
+        typeof value === 'string' ? value : typeof value === 'number' ? String(value) : undefined
       return {
-        prompt,
-        model,
-        aiOutput: text,
-        parsedOutput: JSON.parse(clean) as PartialTransaction,
-        errorMessage: null,
-        latencyMs,
-        status: 'success',
+        Amount: asString(record.Amount),
+        Receiver: asString(record.Receiver),
+        Date: asString(record.Date),
+        Classification: asString(record.Classification),
       }
     } catch {
-      return {
-        prompt,
-        model,
-        aiOutput: text,
-        parsedOutput: null,
-        errorMessage: 'Gemini output could not be parsed as JSON.',
-        latencyMs,
-        status: 'error',
-      }
+      // Try the next candidate.
     }
+  }
+  return null
+}
+
+async function runWithTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`timed out after ${timeoutMs} ms`)), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer)
+    }
+  }
+}
+
+async function classifyWithModel(
+  env: Env,
+  model: string,
+  prompt: string,
+  timeoutMs: number
+): Promise<ClassificationAttemptResult> {
+  const startedAt = Date.now()
+  try {
+    const result = await runWithTimeout(
+      env.AI.run(model as keyof AiModels, buildModelInput(model, prompt) as never),
+      timeoutMs
+    )
+    const latencyMs = Date.now() - startedAt
+    const text = extractModelText(result)
+    if (!text) {
+      return { prompt, model, aiOutput: null, parsedOutput: null, errorMessage: `${model} returned an empty response.`, latencyMs, status: 'error' }
+    }
+
+    const parsedOutput = parseModelJson(text)
+    if (!parsedOutput) {
+      return { prompt, model, aiOutput: text, parsedOutput: null, errorMessage: `${model} output could not be parsed as JSON.`, latencyMs, status: 'error' }
+    }
+
+    return { prompt, model, aiOutput: text, parsedOutput, errorMessage: null, latencyMs, status: 'success' }
   } catch (error) {
     return {
       prompt,
       model,
       aiOutput: null,
       parsedOutput: null,
-      errorMessage: error instanceof Error ? error.message : 'Unknown Gemini request failure.',
-      latencyMs: null,
+      errorMessage: `${model} failed: ${error instanceof Error ? error.message : String(error)}`,
+      latencyMs: Date.now() - startedAt,
       status: 'error',
     }
+  }
+}
+
+/**
+ * Tries the primary model, then the fallback (a separate rate-limit pool), so one overloaded or
+ * rate-limited model no longer drops the transaction straight to the regex parser.
+ */
+async function classifyWithWorkersAi(
+  env: Env,
+  body: string,
+  timestamp: string | null,
+  settings: ClassificationSettings
+): Promise<ClassificationAttemptResult> {
+  const prompt = buildClassificationPrompt(body, timestamp, settings)
+  const primaryModel = env.AI_MODEL?.trim() || DEFAULT_PRIMARY_MODEL
+  const fallbackModel = env.AI_FALLBACK_MODEL?.trim() || DEFAULT_FALLBACK_MODEL
+
+  if (!env.AI) {
+    return { prompt, model: primaryModel, aiOutput: null, parsedOutput: null, errorMessage: 'Workers AI binding is not configured.', latencyMs: null, status: 'skipped' }
+  }
+
+  const primary = await classifyWithModel(env, primaryModel, prompt, PRIMARY_TIMEOUT_MS)
+  if (primary.status === 'success' || !fallbackModel || fallbackModel === primaryModel) {
+    return primary
+  }
+
+  const fallback = await classifyWithModel(env, fallbackModel, prompt, FALLBACK_TIMEOUT_MS)
+  const totalLatency = (primary.latencyMs ?? 0) + (fallback.latencyMs ?? 0)
+  return {
+    ...fallback,
+    latencyMs: totalLatency,
+    errorMessage: fallback.status === 'success'
+      ? null
+      : `${primary.errorMessage} Fallback: ${fallback.errorMessage}`,
+    // Keep the primary's raw output when the fallback produced nothing, for eval debugging.
+    aiOutput: fallback.aiOutput ?? primary.aiOutput,
   }
 }
 
@@ -445,19 +505,34 @@ function shouldPersistReceiverClassification(
   )
 }
 
+/** Applies the user's saved rename for this payee, if any. */
+async function resolveDisplayReceiver(
+  aliases: ReceiverAliasStore,
+  clerkUserId: string,
+  receiver: string
+): Promise<string> {
+  return (await aliases.findDisplayName(clerkUserId, receiver)) ?? receiver
+}
+
 export async function extractAndClassifyTransaction(
   env: Env,
   body: string,
   emailTimestamp: string | null,
   settings: ClassificationSettings,
   context: ClassificationRunContext,
-  receiverClassifications: ReceiverClassificationStore
+  receiverClassifications: ReceiverClassificationStore,
+  receiverAliases: ReceiverAliasStore
 ): Promise<Transaction | null> {
   const parsed = parseHdfcDebitEmail(body, emailTimestamp)
-  const parsedReceiver = normalizeReceiverLabel(parsed?.Receiver ?? '')
+  const parsedReceiver = cleanReceiverName(parsed?.Receiver) ?? ''
 
   if (parsedReceiver) {
-    const savedClassification = await receiverClassifications.findByReceiver(context.clerkUserId, parsedReceiver)
+    const displayReceiver = await resolveDisplayReceiver(receiverAliases, context.clerkUserId, parsedReceiver)
+    const savedClassification =
+      (await receiverClassifications.findByReceiver(context.clerkUserId, displayReceiver)) ??
+      (displayReceiver !== parsedReceiver
+        ? await receiverClassifications.findByReceiver(context.clerkUserId, parsedReceiver)
+        : null)
     if (savedClassification) {
       const attempt = buildReceiverMemorySkipAttempt()
       if (!parsed?.Amount) {
@@ -467,7 +542,7 @@ export async function extractAndClassifyTransaction(
 
       const transaction = {
         Amount: parsed.Amount.replace(/,/g, ''),
-        Receiver: parsedReceiver,
+        Receiver: displayReceiver,
         Date: parsed.Date ?? emailTimestamp ?? formatDateTime(new Date()),
         Classification: savedClassification.classification,
       }
@@ -476,20 +551,25 @@ export async function extractAndClassifyTransaction(
     }
   }
 
-  const attempt = await classifyWithGemini(env, body, emailTimestamp, settings)
-  const merged = { ...parsed, ...attempt.parsedOutput }
-
-  if (!merged?.Amount) {
+  const attempt = await classifyWithWorkersAi(env, body, emailTimestamp, settings)
+  const modelOutput = attempt.parsedOutput ?? {}
+  const modelAmount = modelOutput.Amount?.replace(/[^\d.]/g, '')
+  const amount = modelAmount && Number.parseFloat(modelAmount) > 0 ? modelAmount : parsed?.Amount
+  if (!amount) {
     await logClassificationAttempt(env, context, settings, body, emailTimestamp, attempt, null)
     return null
   }
 
-  const receiver = normalizeReceiverLabel(merged.Receiver?.trim() || parsedReceiver || 'Personal Contact')
+  const rawReceiver = cleanReceiverName(modelOutput.Receiver) || parsedReceiver || 'Personal Contact'
+  const receiver = await resolveDisplayReceiver(receiverAliases, context.clerkUserId, normalizeReceiverLabel(rawReceiver))
+  const modelDate = modelOutput.Date?.trim()
   const transaction = {
-    Amount: merged.Amount.replace(/,/g, ''),
+    Amount: amount.replace(/,/g, ''),
     Receiver: receiver,
-    Date: merged.Date ?? emailTimestamp ?? formatDateTime(new Date()),
-    Classification: merged.Classification?.trim() || classifyHeuristically(receiver),
+    Date: modelDate && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(modelDate)
+      ? modelDate
+      : parsed?.Date ?? emailTimestamp ?? formatDateTime(new Date()),
+    Classification: modelOutput.Classification?.trim() || classifyHeuristically(receiver),
   }
 
   if (shouldPersistReceiverClassification(attempt, transaction)) {

@@ -7,6 +7,7 @@ import {
   ReclassifyRequest,
   Transaction,
 } from '../types'
+import { ReceiverAliasStore } from '../repositories/receiver-alias-repository'
 import { ReceiverClassificationStore } from '../repositories/receiver-classification-repository'
 import { getDefaultClassificationSettings } from '../services/classification-settings'
 import { canonicalizeTags, setTransactionTags } from '../services/tags'
@@ -95,6 +96,43 @@ export const devReceiverClassificationStore: ReceiverClassificationStore = {
 
   async upsert(clerkUserId: string, receiver: string, classification: string) {
     upsertDevReceiverClassification(clerkUserId, receiver, classification)
+  },
+}
+
+const devReceiverAliases = new Map<string, Map<string, string>>()
+
+function getDevReceiverAliases(clerkUserId: string): Map<string, string> {
+  let aliases = devReceiverAliases.get(clerkUserId)
+  if (!aliases) {
+    aliases = new Map()
+    devReceiverAliases.set(clerkUserId, aliases)
+  }
+  return aliases
+}
+
+export const devReceiverAliasStore: ReceiverAliasStore = {
+  async findDisplayName(clerkUserId: string, receiver: string) {
+    return getDevReceiverAliases(clerkUserId).get(normalizeReceiverKey(receiver)) ?? null
+  },
+
+  async upsert(clerkUserId: string, receivers: string[], displayName: string) {
+    const aliases = getDevReceiverAliases(clerkUserId)
+    const display = normalizeReceiverLabel(displayName)
+    const displayKey = normalizeReceiverKey(display)
+    for (const receiver of receivers) {
+      const label = normalizeReceiverLabel(receiver)
+      const key = normalizeReceiverKey(label)
+      if (!key || key === displayKey) {
+        continue
+      }
+      aliases.set(key, display)
+      for (const [aliasKey, aliasDisplay] of aliases) {
+        if (aliasDisplay === label) {
+          aliases.set(aliasKey, display)
+        }
+      }
+    }
+    aliases.delete(displayKey)
   },
 }
 

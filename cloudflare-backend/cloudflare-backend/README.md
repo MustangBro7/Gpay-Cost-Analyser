@@ -90,8 +90,12 @@ npx wrangler secret put GOOGLE_CLIENT_ID
 npx wrangler secret put GOOGLE_CLIENT_SECRET
 npx wrangler secret put GOOGLE_PUBSUB_AUDIENCE
 npx wrangler secret put GOOGLE_PUBSUB_SERVICE_ACCOUNT_EMAIL
-npx wrangler secret put GEMINI_API_KEY
 ```
+
+Transaction extraction runs on Workers AI through the `AI` binding (no API key). `AI_MODEL`
+(default `@cf/zai-org/glm-5.3`) is tried first; on an error, timeout, or rate limit the worker
+retries once on `AI_FALLBACK_MODEL` (default `@cf/google/gemma-4-26b-a4b-it`, a separate
+300 req/min pool) before falling back to the regex parser.
 
 Where to add them:
 

@@ -1,5 +1,6 @@
 import { GMAIL_READONLY_SCOPE, getGoogleAccountStatus, getGoogleOauthAccessToken } from '../auth/clerk'
 import { Env, GmailPushPayload, ParsedEmailMessage, Transaction } from '../types'
+import { ReceiverAliasStore } from '../repositories/receiver-alias-repository'
 import { ReceiverClassificationStore } from '../repositories/receiver-classification-repository'
 import { UserRepository } from '../repositories/user-repository'
 import { TransactionRepository } from '../repositories/transaction-repository'
@@ -45,7 +46,8 @@ export class GmailService {
     private readonly env: Env,
     private readonly users: UserRepository,
     private readonly transactions: TransactionRepository,
-    private readonly receiverClassifications: ReceiverClassificationStore
+    private readonly receiverClassifications: ReceiverClassificationStore,
+    private readonly receiverAliases: ReceiverAliasStore
   ) {
     this.senders = (env.HDFC_SENDERS || 'alerts@hdfcbank.net,alerts@hdfcbank.bank.in')
       .split(',')
@@ -382,7 +384,7 @@ export class GmailService {
       source: 'gmail',
       gmailMessageId: message.id,
       gmailThreadId: message.threadId,
-    }, this.receiverClassifications)
+    }, this.receiverClassifications, this.receiverAliases)
     if (!transaction) {
       return false
     }
@@ -404,9 +406,9 @@ export class GmailService {
 
   private async appendTransaction(clerkUserId: string, transaction: Transaction): Promise<boolean> {
     const result = await this.transactions.mutateTransactions(clerkUserId, (items) => {
-      const exists = items.some(
-        (entry) => entry.Date === transaction.Date && entry.Amount === transaction.Amount && entry.Receiver === transaction.Receiver
-      )
+      // Date + Amount identifies a payment: overlapping pushes can classify the same email twice,
+      // and the receiver may differ between those runs (e.g. a model run vs. a fallback run).
+      const exists = items.some((entry) => entry.Date === transaction.Date && entry.Amount === transaction.Amount)
       if (exists) {
         return false
       }

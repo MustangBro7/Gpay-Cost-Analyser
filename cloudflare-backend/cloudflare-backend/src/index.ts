@@ -5,6 +5,7 @@ import { getClerkClient, getGoogleAccountStatus, isLocalDevMode, requireAuthenti
 import {
   addDevTransaction,
   deleteDevTransaction,
+  devReceiverAliasStore,
   devReceiverClassificationStore,
   getDevClassificationSettings,
   getDevTokenStatus,
@@ -16,12 +17,20 @@ import {
 } from './dev/mock-data'
 import { verifyPubSubPush } from './auth/pubsub'
 import { AiAgentEvalRepository } from './repositories/ai-agent-eval-repository'
+import { ReceiverAliasRepository } from './repositories/receiver-alias-repository'
 import { ReceiverClassificationRepository } from './repositories/receiver-classification-repository'
 import { TransactionRepository } from './repositories/transaction-repository'
 import { UserRepository } from './repositories/user-repository'
 import { extractAndClassifyTransaction } from './services/classifier'
 import { GmailService } from './services/gmail'
 import { normalizeClassificationSettingsInput } from './services/classification-settings'
+import {
+  applyReceiverRepairs,
+  findNoisyReceivers,
+  ReceiverRepairPatch,
+  renameReceiver,
+  requireReceiverName,
+} from './services/receivers'
 import {
   applyTagChanges,
   canonicalizeTags,
@@ -47,6 +56,7 @@ import {
   UpdateClassificationSettingsRequest,
   NormalizeRequest,
   ReclassifyRequest,
+  RenameReceiverRequest,
   RenameTagRequest,
   Transaction,
   UserRole,
@@ -107,8 +117,9 @@ function getRepositories(env: Env) {
   const aiAgentEvals = new AiAgentEvalRepository(env.DB)
   const transactions = new TransactionRepository(env.DB, env.TRANSACTIONS_BUCKET)
   const receiverClassifications = new ReceiverClassificationRepository(env.DB)
-  const gmail = new GmailService(env, users, transactions, receiverClassifications)
-  return { users, aiAgentEvals, transactions, receiverClassifications, gmail }
+  const receiverAliases = new ReceiverAliasRepository(env.DB)
+  const gmail = new GmailService(env, users, transactions, receiverClassifications, receiverAliases)
+  return { users, aiAgentEvals, transactions, receiverClassifications, receiverAliases, gmail }
 }
 
 function parseConfiguredValues(value?: string): Set<string> {
@@ -341,6 +352,7 @@ HDFC Bank`,
   const receiverClassifications = isLocalDevMode(env)
     ? devReceiverClassificationStore
     : getRepositories(env).receiverClassifications
+  const receiverAliases = isLocalDevMode(env) ? devReceiverAliasStore : getRepositories(env).receiverAliases
 
   for (const sample of samples) {
     await extractAndClassifyTransaction(env, sample.body, sample.sentAt, classificationSettings, {
@@ -349,7 +361,7 @@ HDFC Bank`,
       source: sample.source,
       gmailMessageId: sample.gmailMessageId,
       gmailThreadId: sample.gmailThreadId,
-    }, receiverClassifications)
+    }, receiverClassifications, receiverAliases)
   }
 
   return samples.length
@@ -616,7 +628,8 @@ app.post('/classification-preview', async (c) => {
       clerkEmail: authUser.email,
       source: 'preview',
     },
-    devReceiverClassificationStore
+    devReceiverClassificationStore,
+    devReceiverAliasStore
   )
   if (!transaction) {
     throw new HttpError(500, 'Failed to classify preview transaction.')
@@ -637,7 +650,7 @@ app.post('/classification-preview', async (c) => {
       bodyText: previewMessage.bodyText,
     },
     used_custom_rules: !classificationSettings.usesDefault,
-    model_enabled: Boolean(c.env.GEMINI_API_KEY),
+    model_enabled: Boolean(c.env.AI),
   })
 })
 
@@ -723,6 +736,45 @@ app.post('/reclassify', async (c) => {
   await receiverClassifications.upsert(authUser.clerkUserId, result.result.Receiver, payload.newClassification)
 
   return c.json({ status: 'updated', data: result.transactions, updated_transaction: result.result })
+})
+
+app.post('/rename-receiver', async (c) => {
+  const authUser = await requireAuthenticatedUser(c)
+  const payload = await parseJsonBody<RenameReceiverRequest>(c.req.raw)
+  const original = ensureOriginalTransaction(payload)
+  const newReceiver = requireReceiverName(payload.newReceiver, 'newReceiver')
+  const applyToAll = payload.applyToAll !== false
+
+  const outcome = await mutateUserTransactions(c.env, authUser, (items) => {
+    const result = renameReceiver(items, original, newReceiver, applyToAll)
+    return { ...result, updated: structuredClone(result.updated) }
+  })
+
+  const classification = outcome.updated[0]?.Classification
+  if (isLocalDevMode(c.env)) {
+    if (applyToAll) {
+      await devReceiverAliasStore.upsert(authUser.clerkUserId, outcome.previousNames, newReceiver)
+    }
+    if (classification) {
+      await devReceiverClassificationStore.upsert(authUser.clerkUserId, newReceiver, classification)
+    }
+  } else {
+    const { receiverAliases, receiverClassifications } = getRepositories(c.env)
+    // Only a payee-wide rename should change how future emails from this payee are labelled.
+    if (applyToAll) {
+      await receiverAliases.upsert(authUser.clerkUserId, outcome.previousNames, newReceiver)
+    }
+    if (classification) {
+      await receiverClassifications.upsert(authUser.clerkUserId, newReceiver, classification)
+    }
+  }
+
+  return c.json({
+    status: 'updated',
+    updated: outcome.updated.length,
+    updated_transactions: outcome.updated,
+    previous_names: outcome.previousNames,
+  })
 })
 
 app.post('/delete-transaction', async (c) => {
@@ -860,6 +912,109 @@ app.post('/tags/delete', async (c) => {
   })
 
   return c.json({ status: 'deleted', ...result })
+})
+
+const REPAIR_MODEL_CALL_LIMIT = 60
+
+/**
+ * One-off repair for receivers stored before the parser fix: strips masked VPA IDs and leaked
+ * email sentences, re-runs classification from the original email where the fallback left
+ * "Other", and drops rows that duplicate a clean copy of the same payment.
+ * Disabled unless the MAINTENANCE_TOKEN secret is set.
+ */
+app.post('/internal/maintenance/repair-receivers', async (c) => {
+  const token = c.env.MAINTENANCE_TOKEN
+  if (!token || c.req.header('authorization') !== `Bearer ${token}`) {
+    throw new HttpError(404, 'Not found.')
+  }
+
+  const payload = await parseJsonBody<{ dryRun?: boolean }>(c.req.raw).catch(() => ({ dryRun: false }))
+  const dryRun = payload.dryRun === true
+  const { users, transactions, receiverClassifications, receiverAliases } = getRepositories(c.env)
+  const heads = await c.env.DB.prepare('SELECT clerk_user_id FROM transaction_heads').all<{ clerk_user_id: string }>()
+  let modelCalls = 0
+  const report = []
+
+  for (const { clerk_user_id: clerkUserId } of heads.results ?? []) {
+    const user = await users.getUserByClerkId(clerkUserId)
+    const items = await transactions.getTransactions(clerkUserId)
+    const plans = findNoisyReceivers(items)
+    if (!user || plans.length === 0) {
+      report.push({ clerkUserId, noisy: plans.length, repaired: 0, removedDuplicates: 0, patches: [] })
+      continue
+    }
+
+    const settings = await users.getResolvedClassificationSettings(clerkUserId)
+    const patches: ReceiverRepairPatch[] = []
+    for (const { transaction, cleanedReceiver } of plans) {
+      let toReceiver = cleanedReceiver
+      let classification: string | undefined
+      if (toReceiver) {
+        toReceiver = (await receiverAliases.findDisplayName(clerkUserId, toReceiver)) ?? toReceiver
+      }
+
+      // "Other" is what the old fallback assigned to junk receivers; anything else may be a manual choice.
+      if (transaction.Classification === 'Other') {
+        const remembered = toReceiver ? await receiverClassifications.findByReceiver(clerkUserId, toReceiver) : null
+        if (remembered) {
+          classification = remembered.classification
+        } else if (!dryRun && modelCalls < REPAIR_MODEL_CALL_LIMIT) {
+          const source = await c.env.DB
+            .prepare(
+              `SELECT input_body, email_timestamp, gmail_message_id, gmail_thread_id FROM ai_agent_evals
+               WHERE clerk_user_id = ? AND json_extract(final_transaction_json, '$.Date') = ?
+                 AND json_extract(final_transaction_json, '$.Amount') = ?
+               ORDER BY created_at DESC LIMIT 1`
+            )
+            .bind(clerkUserId, transaction.Date, transaction.Amount)
+            .first<{ input_body: string; email_timestamp: string | null; gmail_message_id: string | null; gmail_thread_id: string | null }>()
+          if (source) {
+            modelCalls += 1
+            const rerun = await extractAndClassifyTransaction(
+              c.env,
+              source.input_body,
+              source.email_timestamp,
+              settings,
+              {
+                clerkUserId,
+                clerkEmail: user.clerk_email,
+                source: 'gmail',
+                gmailMessageId: source.gmail_message_id,
+                gmailThreadId: source.gmail_thread_id,
+              },
+              receiverClassifications,
+              receiverAliases
+            )
+            if (rerun) {
+              classification = rerun.Classification
+              toReceiver = toReceiver ?? rerun.Receiver
+            }
+          }
+        }
+      }
+
+      patches.push({
+        Date: transaction.Date,
+        Amount: transaction.Amount,
+        fromReceiver: transaction.Receiver,
+        toReceiver: toReceiver ?? 'Personal Contact',
+        classification,
+      })
+    }
+
+    const outcome = dryRun
+      ? applyReceiverRepairs(structuredClone(items), patches)
+      : (await transactions.mutateTransactions(clerkUserId, (current) => applyReceiverRepairs(current, patches))).result
+
+    report.push({
+      clerkUserId,
+      noisy: plans.length,
+      ...outcome,
+      patches: patches.map((patch) => ({ ...patch, fromReceiver: patch.fromReceiver.slice(0, 80) })),
+    })
+  }
+
+  return c.json({ status: dryRun ? 'dry_run' : 'repaired', modelCalls, report })
 })
 
 app.post('/internal/pubsub/gmail', async (c) => {

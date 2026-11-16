@@ -18,8 +18,10 @@ export interface Env {
   GMAIL_WATCH_LABEL_IDS?: string
   FRONTEND_ORIGIN: string
   FRONTEND_ORIGINS?: string
-  GEMINI_API_KEY?: string
-  GOOGLE_GEMINI_MODEL?: string
+  AI: Ai
+  AI_MODEL?: string
+  AI_FALLBACK_MODEL?: string
+  MAINTENANCE_TOKEN?: string
   HDFC_SENDERS?: string
 }
 
@@ -199,6 +201,13 @@ export interface ClassificationPreviewRequest {
 export interface ReclassifyRequest {
   original: Transaction
   newClassification: string
+}
+
+export interface RenameReceiverRequest {
+  original: Transaction
+  newReceiver: string
+  /** Rename every transaction from this receiver and remember the name for future emails. Defaults to true. */
+  applyToAll?: boolean
 }
 
 export interface DeleteTransactionRequest {
